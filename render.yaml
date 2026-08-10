@@ -1,0 +1,113 @@
+# ==========================================================
+#  COOPECI-DC — Blueprint Render (Infrastructure as Code)
+#  Placer ce fichier à la RACINE du repo (à côté de package.json).
+#  Render > New > Blueprint > sélectionner le repo.
+# ==========================================================
+
+services:
+  - type: web
+    name: coopeci-dc-backend
+    runtime: node
+    region: frankfurt          # région Render la plus proche de la RDC
+    plan: free                 # <-- RECOMMANDÉ EN PROD: passer à "starter"
+                               #     (le tier free se met en veille -> cold start
+                               #      ~30s, risqué pour les webhooks Multipay)
+    branch: main               # adapter si ta branche par défaut diffère
+    autoDeploy: true           # redéploie à chaque push
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+
+    envVars:
+      # --- Runtime ---
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
+      - key: API_PREFIX
+        value: /api
+
+      # --- Base de données (À RENSEIGNER dans le dashboard) ---
+      - key: MONGODB_URI
+        sync: false            # colle ta chaîne MongoDB Atlas
+
+      # --- JWT (générés automatiquement par Render, sécurisés) ---
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 1d
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 30d
+
+      # --- Front admin (pour le CORS) ---
+      - key: CLIENT_URL
+        sync: false            # ex: https://admin.coopeci-dc.cd  (ou * en test)
+
+      # --- Paiement Multipay ---
+      - key: PAYMENT_PROVIDER
+        value: mock            # passer à "multipay" quand la doc est branchée
+      - key: MULTIPAY_BASE_URL
+        value: https://api.multipay.cd/v1
+      - key: MULTIPAY_MERCHANT_ID
+        sync: false
+      - key: MULTIPAY_API_KEY
+        sync: false
+      - key: MULTIPAY_API_SECRET
+        sync: false
+      - key: MULTIPAY_WEBHOOK_SECRET
+        sync: false
+      - key: MULTIPAY_CALLBACK_URL
+        sync: false            # après le 1er déploiement, mettre:
+                               # https://<service>.onrender.com/api/webhooks/multipay
+      - key: MULTIPAY_DEFAULT_CURRENCY
+        value: CDF
+
+      # --- Firebase Cloud Messaging (push) — optionnel ---
+      - key: FIREBASE_ENABLED
+        value: "false"
+      # - key: FIREBASE_PROJECT_ID
+      #   sync: false
+      # - key: FIREBASE_CLIENT_EMAIL
+      #   sync: false
+      # - key: FIREBASE_PRIVATE_KEY
+      #   sync: false
+
+      # --- Cache Redis — optionnel (voir bloc "Key Value" plus bas) ---
+      # - key: REDIS_URL
+      #   fromService:
+      #     type: keyvalue
+      #     name: coopeci-dc-cache
+      #     property: connectionString
+
+      # --- Sécurité & métier ---
+      - key: BCRYPT_SALT_ROUNDS
+        value: "12"
+      - key: RATE_LIMIT_WINDOW_MIN
+        value: "15"
+      - key: RATE_LIMIT_MAX
+        value: "200"
+      - key: MAX_LOGIN_ATTEMPTS
+        value: "5"
+      - key: ACCOUNT_LOCK_MINUTES
+        value: "30"
+      - key: LOG_LEVEL
+        value: info
+      - key: DEFAULT_INTEREST_RATE
+        value: "5"
+      - key: DEFAULT_LATE_FEE_RATE
+        value: "2"
+
+# ==========================================================
+#  OPTIONNEL — Cache Redis managé par Render
+#  Décommenter ce bloc ET la variable REDIS_URL ci-dessus.
+# ==========================================================
+# databases: []   # (les bases Postgres iraient ici — non utilisé)
+#
+# services (Key Value / Redis):
+#   - type: keyvalue
+#     name: coopeci-dc-cache
+#     region: frankfurt
+#     plan: free
+#     maxmemoryPolicy: allkeys-lru
