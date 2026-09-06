@@ -10,7 +10,7 @@ const config = {
   isProd: (process.env.NODE_ENV || 'development') === 'production',
   port: parseInt(process.env.PORT, 10) || 5000,
   apiPrefix: process.env.API_PREFIX || '/api',
-  clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
+  clientUrl: process.env.CLIENT_URL || 'http://localhost:5173,http://localhost:3000',
 
   mongoUri: process.env.MONGODB_URI,
   redisUrl: process.env.REDIS_URL || '',

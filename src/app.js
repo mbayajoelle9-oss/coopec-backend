@@ -17,7 +17,8 @@ app.set('trust proxy', 1);
 
 // Sécurité
 app.use(helmet());
-app.use(cors({ origin: config.clientUrl === '*' ? true : [config.clientUrl], credentials: true }));
+const corsOrigins = config.clientUrl.split(',').map((o) => o.trim()).filter(Boolean);
+app.use(cors({ origin: config.clientUrl === '*' ? true : corsOrigins, credentials: true }));
 app.use(compression());
 if (!config.isProd) app.use(morgan('dev'));
 
