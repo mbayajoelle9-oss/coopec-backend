@@ -32,6 +32,7 @@ router.put('/withdrawal/validate/:id',
   protectUser, allowRoles(ROLES.CASHIER, ROLES.DIRECTOR),
   audit('transaction', 'withdrawal_validate'), c.withdrawalValidate);
 
+router.get('/pending', protectUser, allowRoles(ROLES.CASHIER, ROLES.DIRECTOR), c.listPending);
 router.get('/member/:memberId', protectUser, c.memberHistory);
 router.get('/status/:reference', anyActor, c.statusByReference);
 

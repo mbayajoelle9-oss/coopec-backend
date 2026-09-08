@@ -3,6 +3,7 @@ const router = require('express').Router();
 
 router.use('/auth', require('./authRoutes'));
 router.use('/members', require('./memberRoutes'));
+router.use('/me', require('./meRoutes'));
 router.use('/accounts', require('./accountRoutes'));
 router.use('/transactions', require('./transactionRoutes'));
 router.use('/credits', require('./creditRoutes'));
