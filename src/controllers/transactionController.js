@@ -178,12 +178,36 @@ const memberHistory = asyncHandler(async (req, res) => {
 
 /** GET /transactions/status/:reference. */
 const statusByReference = asyncHandler(async (req, res) => {
-  const trx = await Transaction.findOne({ reference: req.params.reference });
+  const trx = await Transaction.findOne({ reference: req.params.reference })
+    .populate('member', 'firstName lastName memberNumber phone');
   if (!trx) throw new ApiError(404, 'Transaction introuvable.');
-  res.json({ success: true, transaction: { reference: trx.reference, status: trx.status, amount: trx.amount, type: trx.type } });
+  res.json({
+    success: true,
+    transaction: {
+      id: trx._id, reference: trx.reference, status: trx.status, amount: trx.amount,
+      currency: trx.currency, type: trx.type, paymentMethod: trx.paymentMethod,
+      member: trx.member, createdAt: trx.createdAt,
+    },
+  });
+});
+
+/**
+ * GET /transactions/pending — file d'attente caisse (retraits/dépôts en attente).
+ * Réservé caissier/directeur. ?type=withdrawal|deposit pour filtrer.
+ */
+const listPending = asyncHandler(async (req, res) => {
+  const { page, limit, skip } = paginate(req.query);
+  const filter = { status: 'pending' };
+  if (req.query.type) filter.type = req.query.type;
+  const [items, total] = await Promise.all([
+    Transaction.find(filter).sort({ createdAt: 1 }).skip(skip).limit(limit)
+      .populate('member', 'firstName lastName memberNumber phone'),
+    Transaction.countDocuments(filter),
+  ]);
+  res.json({ success: true, data: items, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 });
 
 module.exports = {
   depositRequest, depositConfirm, withdrawalRequest, withdrawalValidate,
-  memberHistory, statusByReference, settleDeposit,
+  memberHistory, statusByReference, settleDeposit, listPending,
 };
