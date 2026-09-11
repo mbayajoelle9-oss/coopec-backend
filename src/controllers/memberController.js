@@ -1,7 +1,8 @@
 'use strict';
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../middleware/errorHandler');
-const { genMemberNumber, genReference, paginate } = require('../utils/helpers');
+const { genMemberNumber, genReference, genOTP, paginate } = require('../utils/helpers');
+const notificationService = require('../services/notificationService');
 const Member = require('../models/Member');
 const Account = require('../models/Account');
 const Counter = require('../models/Counter');
@@ -86,4 +87,26 @@ const deactivate = asyncHandler(async (req, res) => {
   res.json({ success: true, member });
 });
 
-module.exports = { register, list, stats, detail, update, deactivate };
+/** POST /members/:id/reset-pin — génère un nouveau PIN temporaire (Directeur, Caissier, Super Admin).
+ * Le PIN en clair est retourné une seule fois dans la réponse, à communiquer au membre
+ * de vive voix (guichet/téléphone) — il n'est jamais stocké ni journalisé en clair. */
+const resetPin = asyncHandler(async (req, res) => {
+  const member = await Member.findOne({ _id: req.params.id, deletedAt: null });
+  if (!member) throw new ApiError(404, 'Membre introuvable.');
+
+  const tempPin = genOTP(4);
+  await member.setPin(tempPin);
+  member.loginAttempts = 0;
+  member.lockedUntil = undefined;
+  await member.save();
+
+  await notificationService.send({
+    recipient: member._id, type: 'in_app', title: 'Code PIN réinitialisé',
+    message: "Votre code PIN a été réinitialisé par un agent de la coopérative. Contactez votre agence si vous n'êtes pas à l'origine de cette demande.",
+    metadata: { module: 'auth', action: 'pin_reset_staff' },
+  });
+
+  res.json({ success: true, tempPin, member: { id: member._id, memberNumber: member.memberNumber } });
+});
+
+module.exports = { register, list, stats, detail, update, deactivate, resetPin };

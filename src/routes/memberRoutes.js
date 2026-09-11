@@ -19,5 +19,6 @@ router.get('/stats', protectUser, c.stats);
 router.get('/:id', protectUser, c.detail);
 router.put('/:id', protectUser, allowRoles(ROLES.DIRECTOR, ROLES.CREDIT_MANAGER), audit('member', 'update'), c.update);
 router.post('/:id/deactivate', protectUser, allowRoles(ROLES.DIRECTOR), audit('member', 'deactivate'), c.deactivate);
+router.post('/:id/reset-pin', protectUser, allowRoles(ROLES.DIRECTOR, ROLES.CASHIER), audit('member', 'pin_reset_staff'), c.resetPin);
 
 module.exports = router;

@@ -11,6 +11,7 @@ router.use('/committee', require('./committeeRoutes'));
 router.use('/reports', require('./reportRoutes'));
 router.use('/admin', require('./adminRoutes'));
 router.use('/webhooks', require('./webhookRoutes'));
+router.use('/notifications', require('./notificationRoutes'));
 
 router.get('/health', (req, res) => res.json({ success: true, service: 'coopec-backend', time: new Date().toISOString() }));
 
