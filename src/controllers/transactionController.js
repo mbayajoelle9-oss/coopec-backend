@@ -2,7 +2,7 @@
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../middleware/errorHandler');
 const { genReference, paginate, money } = require('../utils/helpers');
-const { PAYMENT_RESULT } = require('../utils/constants');
+const { PAYMENT_RESULT, ROLES } = require('../utils/constants');
 const paymentProvider = require('../services/payment');
 const Account = require('../models/Account');
 const Transaction = require('../models/Transaction');
@@ -49,6 +49,14 @@ const depositRequest = asyncHandler(async (req, res) => {
   } catch (err) {
     trx.status = 'failed'; trx.notes = err.message; await trx.save();
     throw new ApiError(502, `Échec initiation paiement: ${err.message}`);
+  }
+
+  if (trx.status === 'pending') {
+    await notificationService.notifyRoles([ROLES.CASHIER, ROLES.DIRECTOR], {
+      title: 'Dépôt en attente',
+      message: `Un dépôt de ${trx.amount} ${trx.currency} attend confirmation en caisse (réf. ${trx.reference}).`,
+      metadata: { module: 'transaction', entityId: String(trx._id), action: 'deposit_pending' },
+    });
   }
 
   res.status(202).json({
@@ -111,6 +119,12 @@ const withdrawalRequest = asyncHandler(async (req, res) => {
     reference: genReference('RET'), description: 'Demande de retrait',
     paymentMethod: method, mobileMoneyNumber: phone, status: 'pending',
     initiatedBy: req.actor?.id, ipAddress: req.ip,
+  });
+
+  await notificationService.notifyRoles([ROLES.CASHIER, ROLES.DIRECTOR], {
+    title: 'Retrait en attente',
+    message: `Une demande de retrait de ${trx.amount} ${trx.currency} attend validation (réf. ${trx.reference}).`,
+    metadata: { module: 'transaction', entityId: String(trx._id), action: 'withdrawal_pending' },
   });
 
   res.status(201).json({ success: true, message: 'Demande de retrait enregistrée (en attente de validation).', transaction: trx });

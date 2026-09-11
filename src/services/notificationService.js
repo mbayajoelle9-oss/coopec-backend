@@ -1,5 +1,6 @@
 'use strict';
 const Notification = require('../models/Notification');
+const User = require('../models/User');
 const { getMessaging } = require('../config/firebase');
 const logger = require('../utils/logger');
 
@@ -50,4 +51,18 @@ async function markRead(notifId, ownerId) {
   );
 }
 
-module.exports = { send, markRead };
+/**
+ * Notifie tout le personnel actif possédant l'un des rôles donnés (une notification
+ * par utilisateur concerné). Utilisé pour les événements qui doivent apparaître dans
+ * la cloche du back-office (file caisse, nouvelle demande de crédit, dossier comité...).
+ */
+async function notifyRoles(roles, { title, message, priority = 'medium', metadata = {} }) {
+  const staff = await User.find({ role: { $in: roles }, status: 'active' }).select('_id');
+  if (!staff.length) return [];
+  return Promise.all(staff.map((u) => send({
+    user: u._id, recipientType: 'user', type: 'in_app',
+    title, message, priority, metadata,
+  })));
+}
+
+module.exports = { send, markRead, notifyRoles };

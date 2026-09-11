@@ -10,7 +10,7 @@ const Account = require('../models/Account');
 const Transaction = require('../models/Transaction');
 const Member = require('../models/Member');
 const paymentProvider = require('../services/payment');
-const { PAYMENT_RESULT } = require('../utils/constants');
+const { PAYMENT_RESULT, ROLES } = require('../utils/constants');
 const notificationService = require('../services/notificationService');
 
 /** Score de crédit basique (0-100) à partir de la capacité de remboursement. */
@@ -42,6 +42,13 @@ const createApplication = asyncHandler(async (req, res) => {
   });
   app.pushStatus('submitted', 'Demande créée', req.actor?.id);
   await app.save();
+
+  await notificationService.notifyRoles([ROLES.CREDIT_MANAGER, ROLES.DIRECTOR], {
+    title: 'Nouvelle demande de crédit',
+    message: `${member.firstName} ${member.lastName} a soumis une demande de ${money(amountRequested)} (réf. ${app.applicationNumber}).`,
+    metadata: { module: 'credit', entityId: String(app._id), action: 'application_submitted' },
+  });
+
   res.status(201).json({ success: true, application: app });
 });
 
@@ -77,6 +84,15 @@ const updateStatus = asyncHandler(async (req, res) => {
   if (status === 'approved' || status === 'rejected') app.decisionDate = new Date();
   app.pushStatus(status, comment, req.actor?.id);
   await app.save();
+
+  if (status === 'pending_committee') {
+    await notificationService.notifyRoles([ROLES.COMMITTEE_MEMBER, ROLES.DIRECTOR], {
+      title: 'Dossier en attente de vote',
+      message: `Le dossier ${app.applicationNumber} attend une délibération du comité.`,
+      metadata: { module: 'credit', entityId: String(app._id), action: 'application_pending_committee' },
+    });
+  }
+
   res.json({ success: true, application: app });
 });
 
