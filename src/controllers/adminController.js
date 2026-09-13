@@ -6,10 +6,10 @@ const User = require('../models/User');
 
 /** POST /admin/users — créer un utilisateur/personnel. */
 const createUser = asyncHandler(async (req, res) => {
-  const { name, email, password, role, permissions, phone } = req.body;
+  const { name, email, password, role, permissions, phone, commune, ville } = req.body;
   const exists = await User.findOne({ email: String(email).toLowerCase() });
   if (exists) throw new ApiError(409, 'Email déjà utilisé.');
-  const user = await User.create({ name, email, password, role, permissions, phone, createdBy: req.actor?.id });
+  const user = await User.create({ name, email, password, role, permissions, phone, commune, ville, createdBy: req.actor?.id });
   res.status(201).json({ success: true, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
 });
 
@@ -27,7 +27,7 @@ const listUsers = asyncHandler(async (req, res) => {
 
 /** PUT /admin/users/:id. */
 const updateUser = asyncHandler(async (req, res) => {
-  const allowed = ['name', 'role', 'permissions', 'phone', 'status'];
+  const allowed = ['name', 'role', 'permissions', 'phone', 'status', 'commune', 'ville'];
   const patch = {};
   allowed.forEach((k) => { if (req.body[k] !== undefined) patch[k] = req.body[k]; });
   const user = await User.findOneAndUpdate({ _id: req.params.id, deletedAt: null }, patch, { new: true });

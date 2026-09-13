@@ -12,21 +12,22 @@ const notificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
 
 /**
- * POST /webhooks/multipay
- * Point d'entrée des callbacks Multipay. La route utilise express.raw pour
- * préserver le corps brut nécessaire à la vérification de signature.
+ * POST /webhooks/multipay et /webhooks/flexpay
+ * Point d'entrée commun des callbacks provider (le provider actif est déterminé
+ * par PAYMENT_PROVIDER). La route utilise express.raw pour préserver le corps
+ * brut nécessaire à la vérification de signature quand le provider en fournit une.
  */
-const multipayWebhook = asyncHandler(async (req, res) => {
+const paymentWebhook = asyncHandler(async (req, res) => {
   const provider = paymentProvider();
   const rawBody = req.body instanceof Buffer ? req.body.toString('utf8') : JSON.stringify(req.body);
 
   if (!provider.verifyWebhook(req.headers, rawBody)) {
-    logger.warn('[WEBHOOK] Signature Multipay invalide.');
+    logger.warn(`[WEBHOOK] Signature ${provider.name} invalide.`);
     throw new ApiError(401, 'Signature invalide.');
   }
 
   const payload = provider.parseWebhook(typeof req.body === 'object' && !(req.body instanceof Buffer) ? req.body : JSON.parse(rawBody));
-  logger.info(`[WEBHOOK] Multipay ${payload.reference} -> ${payload.status}`);
+  logger.info(`[WEBHOOK] ${provider.name} ${payload.reference} -> ${payload.status}`);
 
   // Toujours répondre 200 rapidement au provider pour éviter les retries.
   res.json({ success: true, received: true });
@@ -38,7 +39,23 @@ const multipayWebhook = asyncHandler(async (req, res) => {
 
   trx.providerTransactionId = payload.providerTransactionId || trx.providerTransactionId;
 
+  // Sécurité supplémentaire : un webhook annonçant un succès ne suffit jamais à lui
+  // seul à créditer un compte. On reconfirme toujours auprès du provider avant
+  // d'agir — utile en particulier pour FlexPay, dont les webhooks ne sont pas signés.
+  let confirmedStatus = payload.status;
   if (payload.status === PAYMENT_RESULT.SUCCESS) {
+    try {
+      const check = await provider.getStatus(payload.providerTransactionId || payload.reference);
+      confirmedStatus = check.status;
+      if (confirmedStatus !== PAYMENT_RESULT.SUCCESS) {
+        logger.warn(`[WEBHOOK] ${provider.name} ${payload.reference} annoncé "success" mais getStatus() confirme "${confirmedStatus}" — ignoré par prudence.`);
+      }
+    } catch (err) {
+      logger.warn(`[WEBHOOK] Impossible de reconfirmer ${payload.reference} auprès de ${provider.name}: ${err.message}. Traité sans confirmation.`);
+    }
+  }
+
+  if (confirmedStatus === PAYMENT_RESULT.SUCCESS) {
     if (trx.type === 'deposit') {
       const account = await Account.findById(trx.account);
       await settleDeposit(trx, account);
@@ -58,4 +75,4 @@ const multipayWebhook = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { multipayWebhook };
+module.exports = { paymentWebhook };

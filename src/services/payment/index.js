@@ -2,6 +2,7 @@
 const config = require('../../config');
 const logger = require('../../utils/logger');
 const MultipayProvider = require('./MultipayProvider');
+const FlexPayProvider = require('./FlexPayProvider');
 const MockProvider = require('./MockProvider');
 
 /**
@@ -14,6 +15,9 @@ let instance = null;
 function paymentProvider() {
   if (instance) return instance;
   switch (config.payment.provider) {
+    case 'flexpay':
+      instance = new FlexPayProvider();
+      break;
     case 'multipay':
       instance = new MultipayProvider();
       break;

@@ -8,5 +8,6 @@ const c = require('../controllers/reportController');
 router.get('/dashboard', protectUser, c.dashboard);
 router.get('/par', protectUser, allowRoles(ROLES.DIRECTOR, ROLES.CREDIT_MANAGER), c.par);
 router.get('/transactions', protectUser, allowRoles(ROLES.DIRECTOR, ROLES.CASHIER), c.transactions);
+router.get('/agents', protectUser, allowRoles(ROLES.DIRECTOR), c.agents);
 
 module.exports = router;

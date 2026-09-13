@@ -33,6 +33,16 @@ const config = {
       callbackUrl: process.env.MULTIPAY_CALLBACK_URL || '',
       defaultCurrency: process.env.MULTIPAY_DEFAULT_CURRENCY || 'CDF',
     },
+    flexpay: {
+      paymentUrl: process.env.FLEXPAY_PAYMENT_URL || 'https://backend.flexpay.cd/api/rest/v1/paymentService',
+      checkUrl: process.env.FLEXPAY_CHECK_URL || 'https://backend.flexpay.cd/api/rest/v1',
+      cardUrl: process.env.FLEXPAY_CARD_URL || 'https://cardpayment.flexpay.cd/v1.1/pay',
+      bearerToken: process.env.FLEXPAY_BEARER_TOKEN || '',
+      merchant: process.env.FLEXPAY_MERCHANT || '',
+      webhookSecret: process.env.FLEXPAY_WEBHOOK_SECRET || '',
+      callbackUrl: process.env.FLEXPAY_CALLBACK_URL || '',
+      defaultCurrency: process.env.FLEXPAY_DEFAULT_CURRENCY || 'CDF',
+    },
   },
 
   firebase: {

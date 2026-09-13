@@ -16,6 +16,8 @@ const userSchema = new mongoose.Schema({
   role: { type: String, enum: Object.values(ROLES), default: ROLES.VIEWER },
   permissions: [permissionSchema],
   phone: String,
+  commune: { type: String, trim: true },
+  ville: { type: String, trim: true },
   status: { type: String, enum: ['active', 'inactive', 'suspended'], default: 'active' },
   lastLogin: Date,
   lastIp: String,

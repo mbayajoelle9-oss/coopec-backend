@@ -25,4 +25,10 @@ const transactions = asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 });
 
-module.exports = { dashboard, par, transactions };
+/** GET /reports/agents — effectif, répartition géographique et performance des agents. */
+const agents = asyncHandler(async (req, res) => {
+  const data = await reportGenerator.agentPerformance();
+  res.json({ success: true, data });
+});
+
+module.exports = { dashboard, par, transactions, agents };
