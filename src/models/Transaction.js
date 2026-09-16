@@ -23,6 +23,10 @@ const transactionSchema = new mongoose.Schema({
   validationDate: Date,
   notes: String,
   ipAddress: String,
+  // Suivi comptable : ce dépôt Mobile Money a-t-il déjà été reversé du compte
+  // FlexPay vers le vrai compte bancaire de la coopérative ?
+  bankTransferred: { type: Boolean, default: false },
+  bankTransfer: { type: mongoose.Schema.Types.ObjectId, ref: 'BankTransfer' },
 }, { timestamps: true });
 
 transactionSchema.index({ createdAt: -1 });
