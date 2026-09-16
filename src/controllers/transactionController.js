@@ -8,6 +8,7 @@ const Account = require('../models/Account');
 const Transaction = require('../models/Transaction');
 const Member = require('../models/Member');
 const notificationService = require('../services/notificationService');
+const pdfGenerator = require('../services/pdfGenerator');
 
 /**
  * POST /transactions/deposit/request
@@ -221,7 +222,24 @@ const listPending = asyncHandler(async (req, res) => {
   res.json({ success: true, data: items, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 });
 
+/**
+ * GET /transactions/:reference/receipt — reçu PDF imprimable d'une transaction
+ * (dépôt, retrait, remboursement...). Accessible au personnel de caisse/direction.
+ */
+const receipt = asyncHandler(async (req, res) => {
+  const trx = await Transaction.findOne({ reference: req.params.reference });
+  if (!trx) throw new ApiError(404, 'Transaction introuvable.');
+  const member = await Member.findById(trx.member).select('firstName lastName memberNumber');
+  const buffer = await pdfGenerator.transactionReceipt(trx, member);
+  res.set({
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `inline; filename="recu-${trx.reference}.pdf"`,
+    'Content-Length': buffer.length,
+  });
+  res.send(buffer);
+});
+
 module.exports = {
   depositRequest, depositConfirm, withdrawalRequest, withdrawalValidate,
-  memberHistory, statusByReference, settleDeposit, listPending,
+  memberHistory, statusByReference, settleDeposit, listPending, receipt,
 };

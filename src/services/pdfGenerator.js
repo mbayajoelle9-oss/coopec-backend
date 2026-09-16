@@ -1,9 +1,9 @@
 'use strict';
 const PDFDocument = require('pdfkit');
 
-/** Palette identité COOPECI-DC (navy/gold). */
-const NAVY = '#0B1F3A';
-const GOLD = '#C9A227';
+/** Palette identité COOPEC-DC. */
+const NAVY = '#171F6B';
+const ACCENT = '#2450E8';
 
 /** Génère un reçu de transaction en PDF -> Buffer. */
 function transactionReceipt(trx, member) {
@@ -15,8 +15,8 @@ function transactionReceipt(trx, member) {
     doc.on('error', reject);
 
     doc.rect(0, 0, doc.page.width, 70).fill(NAVY);
-    doc.fillColor(GOLD).fontSize(18).text('COOPECI-DC', 40, 25);
-    doc.fillColor('#ffffff').fontSize(9).text('Reçu de transaction', 40, 48);
+    doc.fillColor('#ffffff').fontSize(18).text('COOPEC-DC', 40, 25);
+    doc.fillColor('#C7D3FA').fontSize(9).text('Reçu de transaction', 40, 48);
 
     doc.moveDown(3).fillColor('#000000').fontSize(11);
     const rows = [
@@ -33,9 +33,9 @@ function transactionReceipt(trx, member) {
     });
 
     doc.moveDown(2).fontSize(8).fillColor('#666666')
-      .text('Document généré automatiquement — COOPECI-DC. Conserver ce reçu.', { align: 'center' });
+      .text('Document généré automatiquement — COOPEC-DC. Conserver ce reçu.', { align: 'center' });
     doc.end();
   });
 }
 
-module.exports = { transactionReceipt, NAVY, GOLD };
+module.exports = { transactionReceipt, NAVY, ACCENT };
