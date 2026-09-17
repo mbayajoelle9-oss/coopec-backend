@@ -11,7 +11,14 @@ const c = require('../controllers/accountingController');
 // Réservé à la Direction : le rapprochement bancaire est une fonction sensible.
 router.use(protectUser, allowRoles(ROLES.DIRECTOR));
 
-router.get('/pending-mobile-money', c.pendingMobileMoney);
+router.get('/pending-transfer', c.pendingTransfer);
+router.get('/agent-cash-pending', c.agentCashPending);
+router.get('/chart-of-accounts', c.chartOfAccounts);
+router.get('/journal', c.journal);
+router.get('/ledger/:code', c.ledger);
+router.get('/trial-balance', c.trialBalance);
+router.get('/balance-sheet', c.balanceSheet);
+router.get('/income-statement', c.incomeStatement);
 router.get('/transfers', c.listTransfers);
 router.post('/transfer',
   body('amount').isFloat({ gt: 0 }), body('reference').notEmpty(), body('transactionIds').isArray({ min: 1 }),

@@ -35,6 +35,6 @@ router.put('/withdrawal/validate/:id',
 router.get('/pending', protectUser, allowRoles(ROLES.CASHIER, ROLES.DIRECTOR), c.listPending);
 router.get('/member/:memberId', protectUser, c.memberHistory);
 router.get('/status/:reference', anyActor, c.statusByReference);
-router.get('/:reference/receipt', protectUser, allowRoles(ROLES.CASHIER, ROLES.DIRECTOR), c.receipt);
+router.get('/:reference/receipt', protectUser, allowRoles(ROLES.CASHIER, ROLES.DIRECTOR, ROLES.AGENT), c.receipt);
 
 module.exports = router;

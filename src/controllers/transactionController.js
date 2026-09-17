@@ -9,29 +9,52 @@ const Transaction = require('../models/Transaction');
 const Member = require('../models/Member');
 const notificationService = require('../services/notificationService');
 const pdfGenerator = require('../services/pdfGenerator');
+const journalService = require('../services/journalService');
+const logger = require('../utils/logger');
 
 /**
  * POST /transactions/deposit/request
- * Le membre initie un dépôt mobile money. On crée une transaction PENDING
- * et on demande l'encaissement au provider (Multipay). Le crédit réel du
- * compte se fait à la confirmation (webhook) -> cred(Account) atomique.
+ * Deux cas :
+ *  - method='mobile_money' (par défaut) : le membre paie depuis son téléphone,
+ *    on demande l'encaissement au provider (FlexPay/Multipay). Transaction PENDING
+ *    jusqu'à confirmation (webhook ou callback).
+ *  - method='cash' : un agent (ou la caisse) reçoit physiquement des espèces —
+ *    typiquement pour un membre sans smartphone ni Mobile Money. Aucun provider
+ *    impliqué ; la transaction reste PENDING jusqu'à confirmation par un caissier
+ *    (double contrôle), qui déclenche alors l'impression du reçu définitif.
  */
 const depositRequest = asyncHandler(async (req, res) => {
-  const { accountId, amount, phone } = req.body;
+  const { accountId, amount, phone, method } = req.body;
   if (!(amount > 0)) throw new ApiError(400, 'Montant invalide.');
   const account = await Account.findById(accountId);
   if (!account || account.status !== 'active') throw new ApiError(404, 'Compte introuvable ou inactif.');
 
+  const paymentMethod = method === 'cash' ? 'cash' : 'mobile_money';
   const reference = genReference('DEP');
   const trx = await Transaction.create({
     account: account._id, member: account.member, type: 'deposit',
     amount: money(amount), currency: account.currency,
     balanceBefore: account.balance, reference,
-    description: 'Dépôt mobile money', paymentMethod: 'mobile_money',
-    mobileMoneyNumber: phone, status: 'pending',
+    description: paymentMethod === 'cash' ? 'Dépôt en espèces (agent terrain)' : 'Dépôt mobile money',
+    paymentMethod, mobileMoneyNumber: paymentMethod === 'mobile_money' ? phone : undefined,
+    status: 'pending',
     initiatedBy: req.actor?.kind === 'user' ? req.actor.id : undefined,
     ipAddress: req.ip,
   });
+
+  if (paymentMethod === 'cash') {
+    // Espèces déjà en main : rien à demander à un provider, on attend juste
+    // la double vérification du caissier avant de créditer réellement le compte.
+    await notificationService.notifyRoles([ROLES.CASHIER, ROLES.DIRECTOR], {
+      title: 'Dépôt espèces en attente',
+      message: `Un agent a collecté ${trx.amount} ${trx.currency} en espèces, en attente de confirmation caisse (réf. ${trx.reference}).`,
+      metadata: { module: 'transaction', entityId: String(trx._id), action: 'deposit_pending' },
+    });
+    return res.status(202).json({
+      success: true, message: 'Dépôt espèces enregistré. Un reçu provisoire peut être imprimé ; le solde sera crédité après confirmation caisse.',
+      transaction: { id: trx._id, reference: trx.reference, status: trx.status },
+    });
+  }
 
   const provider = paymentProvider();
   try {
@@ -75,6 +98,8 @@ async function settleDeposit(trx, account) {
   trx.balanceAfter = account.balance;
   trx.status = 'completed';
   trx.validationDate = new Date();
+  try { await journalService.postDeposit(trx); }
+  catch (e) { logger.error(`[COMPTA] Échec écriture dépôt ${trx.reference}: ${e.message}`); }
 }
 
 /**
@@ -171,6 +196,9 @@ const withdrawalValidate = asyncHandler(async (req, res) => {
   trx.validatedBy = req.actor?.id; trx.validationDate = new Date();
   await trx.save();
 
+  try { await journalService.postWithdrawal(trx); }
+  catch (e) { logger.error(`[COMPTA] Échec écriture retrait ${trx.reference}: ${e.message}`); }
+
   await notificationService.send({
     recipient: trx.member, type: 'push', title: 'Retrait validé',
     message: `Votre retrait de ${trx.amount} ${trx.currency} a été effectué.`,
@@ -224,11 +252,18 @@ const listPending = asyncHandler(async (req, res) => {
 
 /**
  * GET /transactions/:reference/receipt — reçu PDF imprimable d'une transaction
- * (dépôt, retrait, remboursement...). Accessible au personnel de caisse/direction.
+ * (dépôt, retrait, remboursement...). Le caissier/directeur peut imprimer
+ * n'importe quel reçu ; un agent ne peut imprimer que ceux des opérations
+ * qu'il a lui-même initiées (celles de ses membres, sur le terrain).
  */
 const receipt = asyncHandler(async (req, res) => {
   const trx = await Transaction.findOne({ reference: req.params.reference });
   if (!trx) throw new ApiError(404, 'Transaction introuvable.');
+
+  const isCashierOrDirector = [ROLES.CASHIER, ROLES.DIRECTOR, ROLES.SUPER_ADMIN].includes(req.actor?.role);
+  const isOwnAgentTrx = req.actor?.role === ROLES.AGENT && String(trx.initiatedBy) === String(req.actor.id);
+  if (!isCashierOrDirector && !isOwnAgentTrx) throw new ApiError(403, "Vous n'avez pas accès à ce reçu.");
+
   const member = await Member.findById(trx.member).select('firstName lastName memberNumber');
   const buffer = await pdfGenerator.transactionReceipt(trx, member);
   res.set({

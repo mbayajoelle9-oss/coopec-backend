@@ -12,6 +12,8 @@ const Member = require('../models/Member');
 const paymentProvider = require('../services/payment');
 const { PAYMENT_RESULT, ROLES } = require('../utils/constants');
 const notificationService = require('../services/notificationService');
+const journalService = require('../services/journalService');
+const logger = require('../utils/logger');
 
 /** Score de crédit basique (0-100) à partir de la capacité de remboursement. */
 function computeScore({ monthlyIncome = 0, monthlyExpenses = 0, amountRequested, duration }) {
@@ -134,6 +136,9 @@ const disburse = asyncHandler(async (req, res) => {
     remainingAmount: s.expectedAmount, status: 'pending',
   })));
 
+  try { await journalService.postCreditDisbursement(credit, principal); }
+  catch (e) { logger.error(`[COMPTA] Échec écriture décaissement ${credit.creditNumber}: ${e.message}`); }
+
   // Décaissement
   if (method === 'mobile_money') {
     const provider = paymentProvider();
@@ -240,6 +245,16 @@ async function applyRepayment(repayment, amount, providerTransactionId) {
   credit.nextPaymentDate = nextDue ? nextDue.expectedDate : null;
   if (credit.remainingBalance <= 0) { credit.status = 'completed'; }
   await credit.save();
+
+  try {
+    const ratio = repayment.expectedAmount > 0 ? amount / repayment.expectedAmount : 0;
+    const principalPortion = money(Math.min(amount, (repayment.principalAmount || 0) * ratio));
+    const interestPortion = money(Math.max(amount - principalPortion, 0));
+    await journalService.postCreditRepayment({
+      creditId: credit._id, principal: principalPortion, interest: interestPortion,
+      reference: repayment.providerTransactionId || credit.creditNumber,
+    });
+  } catch (e) { logger.error(`[COMPTA] Échec écriture remboursement ${credit.creditNumber}: ${e.message}`); }
 
   await notificationService.send({
     recipient: credit.member, type: 'push', title: 'Remboursement reçu',
