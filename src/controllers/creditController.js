@@ -11,6 +11,7 @@ const Transaction = require('../models/Transaction');
 const Member = require('../models/Member');
 const paymentProvider = require('../services/payment');
 const { PAYMENT_RESULT, ROLES } = require('../utils/constants');
+const { getOrCreate: getSettings } = require('./settingsController');
 const notificationService = require('../services/notificationService');
 const journalService = require('../services/journalService');
 const logger = require('../utils/logger');
@@ -33,12 +34,27 @@ const createApplication = asyncHandler(async (req, res) => {
   if (!member) throw new ApiError(404, 'Membre introuvable.');
   if (!(amountRequested > 0) || !(duration > 0)) throw new ApiError(400, 'Montant et durée requis.');
 
+  // Canal de soumission : détermine si une limite de montant à distance s'applique.
+  const isMember = req.actor?.kind === 'member';
+  const isAgent = req.actor?.kind === 'user' && req.actor.role === ROLES.AGENT;
+  const channel = isMember ? 'member_app' : isAgent ? 'agent_pos' : 'in_person';
+
+  const settings = await getSettings();
+  if ((channel === 'member_app' || channel === 'agent_pos') && money(amountRequested) > settings.creditRemoteMaxAmount) {
+    throw new ApiError(
+      403,
+      `Les demandes de plus de ${settings.creditRemoteMaxAmount} $ ne peuvent pas être soumises à distance. ` +
+      "Le membre doit se présenter en personne devant le Responsable Crédit ou la Comptabilité pour que la demande soit ré-encodée sur place.",
+    );
+  }
+
   const score = computeScore({ monthlyIncome, monthlyExpenses, amountRequested, duration });
   const app = new CreditApplication({
     applicationNumber: genReference('CRA'),
     member: memberId, agent: req.actor?.kind === 'user' ? req.actor.id : undefined,
-    amountRequested: money(amountRequested), duration,
-    interestRate: interestRate ?? config.business.defaultInterestRate,
+    amountRequested: money(amountRequested), duration, channel,
+    inPersonReencoded: channel === 'in_person',
+    interestRate: interestRate ?? settings.defaultInterestRate,
     purpose, monthlyIncome, monthlyExpenses, proposedGuarantees, score,
     createdBy: req.actor?.id,
   });
@@ -81,6 +97,16 @@ const updateStatus = asyncHandler(async (req, res) => {
   const { status, comment, amountApproved, rejectionReason } = req.body;
   const app = await CreditApplication.findById(req.params.id);
   if (!app) throw new ApiError(404, 'Demande introuvable.');
+
+  // Aucun dossier ne peut être approuvé sans être passé par le vote du Conseil
+  // d'Administration — vérification obligatoire pour tout crédit, quel que soit son montant.
+  if (status === 'approved') {
+    const wentThroughCommittee = app.statusHistory.some((h) => h.status === 'pending_committee');
+    if (!wentThroughCommittee) {
+      throw new ApiError(409, "Ce dossier doit d'abord passer par le vote du Conseil d'Administration avant toute approbation.");
+    }
+  }
+
   if (amountApproved !== undefined) app.amountApproved = money(amountApproved);
   if (rejectionReason) app.rejectionReason = rejectionReason;
   if (status === 'approved' || status === 'rejected') app.decisionDate = new Date();
@@ -88,10 +114,18 @@ const updateStatus = asyncHandler(async (req, res) => {
   await app.save();
 
   if (status === 'pending_committee') {
-    await notificationService.notifyRoles([ROLES.COMMITTEE_MEMBER, ROLES.DIRECTOR], {
+    await notificationService.notifyRoles([ROLES.COMMITTEE_MEMBER, ROLES.BOARD_PRESIDENT, ROLES.BOARD_VICE_PRESIDENT, ROLES.BOARD_MEMBER, ROLES.DIRECTOR], {
       title: 'Dossier en attente de vote',
       message: `Le dossier ${app.applicationNumber} attend une délibération du comité.`,
       metadata: { module: 'credit', entityId: String(app._id), action: 'application_pending_committee' },
+    });
+  }
+
+  if (status === 'approved') {
+    await notificationService.notifyRoles([ROLES.CASHIER], {
+      title: 'Crédit approuvé — décaissement à effectuer',
+      message: `Le dossier ${app.applicationNumber} est approuvé par la hiérarchie. Vérifiez et procédez au décaissement.`,
+      metadata: { module: 'credit', entityId: String(app._id), action: 'application_approved_awaiting_disbursement' },
     });
   }
 
@@ -108,8 +142,9 @@ const disburse = asyncHandler(async (req, res) => {
   if (!app) throw new ApiError(404, 'Demande introuvable.');
   if (app.status !== 'approved') throw new ApiError(400, 'La demande doit être approuvée.');
 
+  const settings = await getSettings();
   const principal = app.amountApproved || app.amountRequested;
-  const rate = app.interestRate ?? config.business.defaultInterestRate;
+  const rate = app.interestRate ?? settings.defaultInterestRate;
   const now = new Date();
   const plan = amortizationSchedule({ principal, annualRate: rate, months: app.duration, startDate: now });
 
@@ -124,7 +159,7 @@ const disburse = asyncHandler(async (req, res) => {
     monthlyPayment: plan.monthlyPayment, totalInterest: plan.totalInterest,
     totalRepayable: plan.totalRepayable, remainingBalance: plan.totalRepayable,
     disbursementDate: now, firstPaymentDate: firstPay, maturityDate: maturity,
-    status: 'active', lateFeeRate: config.business.defaultLateFeeRate,
+    status: 'active', lateFeeRate: settings.defaultLateFeeRate,
     nextPaymentDate: firstPay, createdBy: req.actor?.id,
   });
 

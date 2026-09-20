@@ -64,6 +64,8 @@ const config = {
     logLevel: process.env.LOG_LEVEL || 'info',
     defaultInterestRate: parseFloat(process.env.DEFAULT_INTEREST_RATE) || 5,
     defaultLateFeeRate: parseFloat(process.env.DEFAULT_LATE_FEE_RATE) || 2,
+    creditRemoteMaxAmount: parseFloat(process.env.CREDIT_REMOTE_MAX_AMOUNT) || 500,
+    shareUnitValue: parseFloat(process.env.SHARE_UNIT_VALUE) || 5000, // valeur nominale d'une part sociale (CDF)
   },
 };
 

@@ -100,6 +100,23 @@ async function settleDeposit(trx, account) {
   trx.validationDate = new Date();
   try { await journalService.postDeposit(trx); }
   catch (e) { logger.error(`[COMPTA] Échec écriture dépôt ${trx.reference}: ${e.message}`); }
+
+  if (trx.paymentMethod === 'cash') {
+    // La hiérarchie vient de valider la remise physique des espèces par l'agent :
+    // le caissier doit maintenant imprimer le bordereau de versement.
+    await notificationService.notifyRoles([ROLES.CASHIER], {
+      title: 'Bordereau de versement à imprimer',
+      message: `Dépôt espèces validé (réf. ${trx.reference}, ${trx.amount} ${trx.currency}). Imprimez le bordereau de versement.`,
+      metadata: { module: 'transaction', entityId: String(trx._id), action: 'cash_deposit_voucher_ready' },
+    });
+  } else if (trx.paymentMethod === 'mobile_money') {
+    // Dépôt Mobile Money confirmé : le membre doit recevoir son reçu (à distance).
+    await notificationService.send({
+      recipient: trx.member, recipientType: 'member', type: 'in_app',
+      title: 'Dépôt confirmé', message: `Votre dépôt de ${trx.amount} ${trx.currency} a été confirmé (réf. ${trx.reference}).`,
+      metadata: { module: 'transaction', entityId: String(trx._id), action: 'deposit_confirmed' },
+    });
+  }
 }
 
 /**
@@ -255,6 +272,8 @@ const listPending = asyncHandler(async (req, res) => {
  * (dépôt, retrait, remboursement...). Le caissier/directeur peut imprimer
  * n'importe quel reçu ; un agent ne peut imprimer que ceux des opérations
  * qu'il a lui-même initiées (celles de ses membres, sur le terrain).
+ * Pour un dépôt en espèces, génère automatiquement le double exemplaire
+ * (membre + agent) à faire signer, sur une seule page A4.
  */
 const receipt = asyncHandler(async (req, res) => {
   const trx = await Transaction.findOne({ reference: req.params.reference });
@@ -265,7 +284,9 @@ const receipt = asyncHandler(async (req, res) => {
   if (!isCashierOrDirector && !isOwnAgentTrx) throw new ApiError(403, "Vous n'avez pas accès à ce reçu.");
 
   const member = await Member.findById(trx.member).select('firstName lastName memberNumber');
-  const buffer = await pdfGenerator.transactionReceipt(trx, member);
+  const buffer = trx.type === 'deposit' && trx.paymentMethod === 'cash'
+    ? await pdfGenerator.cashDepositDualReceipt(trx, member)
+    : await pdfGenerator.transactionReceipt(trx, member);
   res.set({
     'Content-Type': 'application/pdf',
     'Content-Disposition': `inline; filename="recu-${trx.reference}.pdf"`,
@@ -274,7 +295,30 @@ const receipt = asyncHandler(async (req, res) => {
   res.send(buffer);
 });
 
+/**
+ * GET /transactions/:reference/voucher — bordereau de versement (Caissier/Direction),
+ * généré une fois que la hiérarchie a validé la remise physique des espèces par l'agent.
+ */
+const voucher = asyncHandler(async (req, res) => {
+  const trx = await Transaction.findOne({ reference: req.params.reference })
+    .populate('initiatedBy', 'name').populate('validatedBy', 'name');
+  if (!trx) throw new ApiError(404, 'Transaction introuvable.');
+  if (trx.paymentMethod !== 'cash') throw new ApiError(400, "Le bordereau de versement ne s'applique qu'aux dépôts en espèces.");
+  if (trx.status !== 'completed') throw new ApiError(409, 'Le dépôt doit être validé par la hiérarchie avant de générer le bordereau.');
+
+  const member = await Member.findById(trx.member).select('firstName lastName memberNumber');
+  const buffer = await pdfGenerator.depositVoucher(trx, member, {
+    agentName: trx.initiatedBy?.name, validatedByName: trx.validatedBy?.name,
+  });
+  res.set({
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `inline; filename="bordereau-${trx.reference}.pdf"`,
+    'Content-Length': buffer.length,
+  });
+  res.send(buffer);
+});
+
 module.exports = {
   depositRequest, depositConfirm, withdrawalRequest, withdrawalValidate,
-  memberHistory, statusByReference, settleDeposit, listPending, receipt,
+  memberHistory, statusByReference, settleDeposit, listPending, receipt, voucher,
 };

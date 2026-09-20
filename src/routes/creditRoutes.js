@@ -20,8 +20,10 @@ router.put('/applications/:id/status',
   protectUser, allowRoles(ROLES.CREDIT_MANAGER, ROLES.DIRECTOR),
   audit('credit', 'application_status'), c.updateStatus);
 
+// Le décaissement effectif (mouvement réel des fonds) est réservé au Caissier, qui agit
+// seulement après notification de l'approbation par la hiérarchie (Responsable Crédit/Directeur).
 router.post('/applications/:id/disburse',
-  protectUser, allowRoles(ROLES.CREDIT_MANAGER, ROLES.DIRECTOR),
+  protectUser, allowRoles(ROLES.CASHIER),
   audit('credit', 'disburse'), c.disburse);
 
 router.get('/member/:memberId', protectUser, c.memberCredits);

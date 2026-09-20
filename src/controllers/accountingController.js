@@ -176,7 +176,8 @@ const trialBalance = asyncHandler(async (req, res) => {
  * Passif = comptes de nature 'passif' (classes 1,3,4 : capital, dépôts, réserves...).
  * Le résultat de l'exercice (classe 7 - classe 6) équilibre automatiquement le bilan.
  */
-const balanceSheet = asyncHandler(async (req, res) => {
+/** Calcule le bilan (Actif/Passif) — réutilisé par la route et par la consolidation. */
+async function computeBalanceSheet() {
   const accounts = await ChartOfAccount.find().sort({ code: 1 });
   const totals = await JournalEntry.aggregate([
     { $unwind: '$lines' },
@@ -202,16 +203,19 @@ const balanceSheet = asyncHandler(async (req, res) => {
   const totalPassifHorsResultat = money(passif.reduce((s, a) => s + a.balance, 0));
   const totalPassif = money(totalPassifHorsResultat + resultatExercice);
 
-  res.json({
-    success: true,
-    actif, passif, totalActif, totalPassif,
-    resultatExercice,
+  return {
+    actif, passif, totalActif, totalPassif, resultatExercice,
     equilibre: Math.round(totalActif * 100) === Math.round(totalPassif * 100),
-  });
+  };
+}
+
+const balanceSheet = asyncHandler(async (req, res) => {
+  const data = await computeBalanceSheet();
+  res.json({ success: true, ...data });
 });
 
-/** GET /accounting/income-statement — Compte de résultat simplifié (charges vs produits). */
-const incomeStatement = asyncHandler(async (req, res) => {
+/** Calcule le compte de résultat — réutilisé par la route et par la consolidation. */
+async function computeIncomeStatement() {
   const accounts = await ChartOfAccount.find({ nature: { $in: ['charge', 'produit'] } }).sort({ code: 1 });
   const totals = await JournalEntry.aggregate([
     { $unwind: '$lines' },
@@ -226,10 +230,17 @@ const incomeStatement = asyncHandler(async (req, res) => {
   });
   const totalCharges = money(rows.filter((r) => r.nature === 'charge').reduce((s, r) => s + r.amount, 0));
   const totalProduits = money(rows.filter((r) => r.nature === 'produit').reduce((s, r) => s + r.amount, 0));
-  res.json({ success: true, data: rows, totalCharges, totalProduits, resultat: money(totalProduits - totalCharges) });
+  return { data: rows, totalCharges, totalProduits, resultat: money(totalProduits - totalCharges) };
+}
+
+/** GET /accounting/income-statement — Compte de résultat simplifié (charges vs produits). */
+const incomeStatement = asyncHandler(async (req, res) => {
+  const data = await computeIncomeStatement();
+  res.json({ success: true, ...data });
 });
 
 module.exports = {
   pendingTransfer, recordTransfer, listTransfers, agentCashPending,
+  computeBalanceSheet, computeIncomeStatement,
   chartOfAccounts, journal, ledger, trialBalance, balanceSheet, incomeStatement,
 };

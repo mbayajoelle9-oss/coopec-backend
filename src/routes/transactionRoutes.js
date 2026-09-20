@@ -36,5 +36,6 @@ router.get('/pending', protectUser, allowRoles(ROLES.CASHIER, ROLES.DIRECTOR), c
 router.get('/member/:memberId', protectUser, c.memberHistory);
 router.get('/status/:reference', anyActor, c.statusByReference);
 router.get('/:reference/receipt', protectUser, allowRoles(ROLES.CASHIER, ROLES.DIRECTOR, ROLES.AGENT), c.receipt);
+router.get('/:reference/voucher', protectUser, allowRoles(ROLES.CASHIER, ROLES.DIRECTOR), c.voucher);
 
 module.exports = router;

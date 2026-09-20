@@ -11,7 +11,7 @@ const memberSchema = new mongoose.Schema({
   nationalId: { type: String, trim: true },
   photo: String,
   phone: { type: String, required: true, unique: true, trim: true },
-  email: { type: String, lowercase: true, trim: true },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   address: {
     street: String, city: String, province: String,
     country: { type: String, default: 'RDC' },
@@ -20,7 +20,13 @@ const memberSchema = new mongoose.Schema({
   monthlyIncome: { type: Number, default: 0 },
   status: { type: String, enum: MEMBER_STATUS, default: 'pending' },
   registrationDate: { type: Date, default: Date.now },
+  // Connexion par e-mail et mot de passe, alignée sur le personnel (remplace l'ancienne
+  // connexion par téléphone + code PIN). "pin" est conservé, non utilisé, pour les comptes
+  // historiques déjà créés avant ce changement.
+  password: { type: String, select: false },
   pin: { type: String, select: false },
+  resetPasswordToken: { type: String, select: false },
+  resetPasswordExpiry: Date,
   biometricEnabled: { type: Boolean, default: false },
   deviceToken: String,
   passwordResetOTP: { type: String, select: false },
@@ -41,6 +47,14 @@ memberSchema.methods.setPin = async function setPin(plain) {
 
 memberSchema.methods.comparePin = function comparePin(plain) {
   return bcrypt.compare(plain, this.pin);
+};
+
+memberSchema.methods.setPassword = async function setPassword(plain) {
+  this.password = await bcrypt.hash(plain, config.security.saltRounds);
+};
+
+memberSchema.methods.comparePassword = function comparePassword(plain) {
+  return bcrypt.compare(plain, this.password);
 };
 
 memberSchema.methods.isLocked = function isLocked() {

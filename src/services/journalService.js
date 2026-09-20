@@ -167,8 +167,34 @@ async function postProvisionAdjustment(credit, delta) {
   });
 }
 
+/** Souscription de parts sociales : entrée de capital. */
+async function postShareSubscription(share) {
+  const treasury = treasuryAccount(share.paymentMethod);
+  return post({
+    narrative: `Souscription de parts sociales — réf. ${share.reference}`,
+    lines: [
+      { account: treasury, debit: share.amount, credit: 0, label: 'Encaissement parts sociales' },
+      { account: ACCOUNTS.CAPITAL_PARTS_SOCIALES, debit: 0, credit: share.amount, label: 'Souscription parts' },
+    ],
+    sourceModule: 'accounting', sourceId: share._id,
+  });
+}
+
+/** Remboursement de parts sociales : sortie de capital (départ ou baisse volontaire). */
+async function postShareReimbursement(share) {
+  const treasury = treasuryAccount(share.paymentMethod);
+  return post({
+    narrative: `Remboursement de parts sociales — réf. ${share.reference}`,
+    lines: [
+      { account: ACCOUNTS.CAPITAL_PARTS_SOCIALES, debit: share.amount, credit: 0, label: 'Remboursement parts' },
+      { account: treasury, debit: 0, credit: share.amount, label: 'Décaissement' },
+    ],
+    sourceModule: 'accounting', sourceId: share._id,
+  });
+}
+
 module.exports = {
   ACCOUNTS, post,
   postDeposit, postWithdrawal, postCreditDisbursement, postCreditRepayment,
-  postReclassToArrears, postProvisionAdjustment,
+  postReclassToArrears, postProvisionAdjustment, postShareSubscription, postShareReimbursement,
 };

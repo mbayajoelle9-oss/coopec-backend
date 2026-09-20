@@ -14,9 +14,10 @@ async function nextSeq(name) {
 
 /** POST /members/register — inscription (crée aussi un compte épargne). */
 const register = asyncHandler(async (req, res) => {
-  const { firstName, lastName, phone, pin, email, nationalId, profession, monthlyIncome, address } = req.body;
-  const exists = await Member.findOne({ phone });
-  if (exists) throw new ApiError(409, 'Un membre avec ce téléphone existe déjà.');
+  const { firstName, lastName, phone, password, email, nationalId, profession, monthlyIncome, address } = req.body;
+  if (!email) throw new ApiError(400, "L'adresse e-mail est requise pour créer le compte du membre.");
+  const exists = await Member.findOne({ $or: [{ phone }, { email: String(email).toLowerCase() }] });
+  if (exists) throw new ApiError(409, 'Un membre avec ce téléphone ou cet e-mail existe déjà.');
 
   const seq = await nextSeq('member');
   const member = new Member({
@@ -25,7 +26,8 @@ const register = asyncHandler(async (req, res) => {
     status: 'pending',
     createdBy: req.actor?.kind === 'user' ? req.actor.id : undefined,
   });
-  if (pin) await member.setPin(pin);
+  const tempPassword = password ? undefined : genOTP(8);
+  await member.setPassword(password || tempPassword);
   await member.save();
 
   const account = await Account.create({
@@ -33,7 +35,13 @@ const register = asyncHandler(async (req, res) => {
     member: member._id, type: 'savings', currency: 'CDF', status: 'active',
   });
 
-  res.status(201).json({ success: true, member: { id: member._id, memberNumber: member.memberNumber }, account: { id: account._id, accountNumber: account.accountNumber } });
+  res.status(201).json({
+    success: true,
+    member: { id: member._id, memberNumber: member.memberNumber },
+    account: { id: account._id, accountNumber: account.accountNumber },
+    // Communiqué une seule fois au membre si aucun mot de passe n'a été saisi à l'inscription.
+    tempPassword,
+  });
 });
 
 /** GET /members — liste paginée + recherche (Admin). */
@@ -87,26 +95,26 @@ const deactivate = asyncHandler(async (req, res) => {
   res.json({ success: true, member });
 });
 
-/** POST /members/:id/reset-pin — génère un nouveau PIN temporaire (Directeur, Caissier, Super Admin).
- * Le PIN en clair est retourné une seule fois dans la réponse, à communiquer au membre
- * de vive voix (guichet/téléphone) — il n'est jamais stocké ni journalisé en clair. */
-const resetPin = asyncHandler(async (req, res) => {
+/** POST /members/:id/reset-password — génère un mot de passe temporaire (Directeur, Caissier, Super Admin).
+ * Le mot de passe en clair est retourné une seule fois dans la réponse, à communiquer au
+ * membre de vive voix (guichet/téléphone) — il n'est jamais stocké ni journalisé en clair. */
+const resetPassword = asyncHandler(async (req, res) => {
   const member = await Member.findOne({ _id: req.params.id, deletedAt: null });
   if (!member) throw new ApiError(404, 'Membre introuvable.');
 
-  const tempPin = genOTP(4);
-  await member.setPin(tempPin);
+  const tempPassword = genOTP(8);
+  await member.setPassword(tempPassword);
   member.loginAttempts = 0;
   member.lockedUntil = undefined;
   await member.save();
 
   await notificationService.send({
-    recipient: member._id, type: 'in_app', title: 'Code PIN réinitialisé',
-    message: "Votre code PIN a été réinitialisé par un agent de la coopérative. Contactez votre agence si vous n'êtes pas à l'origine de cette demande.",
-    metadata: { module: 'auth', action: 'pin_reset_staff' },
+    recipient: member._id, type: 'in_app', title: 'Mot de passe réinitialisé',
+    message: "Votre mot de passe a été réinitialisé par un agent de la coopérative. Contactez votre agence si vous n'êtes pas à l'origine de cette demande.",
+    metadata: { module: 'auth', action: 'password_reset_staff' },
   });
 
-  res.json({ success: true, tempPin, member: { id: member._id, memberNumber: member.memberNumber } });
+  res.json({ success: true, tempPassword, member: { id: member._id, memberNumber: member.memberNumber } });
 });
 
-module.exports = { register, list, stats, detail, update, deactivate, resetPin };
+module.exports = { register, list, stats, detail, update, deactivate, resetPassword };

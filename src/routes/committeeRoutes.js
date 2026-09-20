@@ -8,10 +8,10 @@ const { audit } = require('../middleware/audit');
 const { ROLES } = require('../utils/constants');
 const c = require('../controllers/committeeController');
 
-router.get('/pending', protectUser, allowRoles(ROLES.COMMITTEE_MEMBER, ROLES.DIRECTOR, ROLES.CREDIT_MANAGER), c.pending);
+router.get('/pending', protectUser, allowRoles(ROLES.COMMITTEE_MEMBER, ROLES.BOARD_PRESIDENT, ROLES.BOARD_VICE_PRESIDENT, ROLES.BOARD_MEMBER, ROLES.DIRECTOR, ROLES.CREDIT_MANAGER), c.pending);
 
 router.post('/applications/:id/vote',
-  protectUser, allowRoles(ROLES.COMMITTEE_MEMBER, ROLES.DIRECTOR),
+  protectUser, allowRoles(ROLES.COMMITTEE_MEMBER, ROLES.BOARD_PRESIDENT, ROLES.BOARD_VICE_PRESIDENT, ROLES.BOARD_MEMBER, ROLES.DIRECTOR),
   body('decision').isIn(['approve', 'reject', 'more_info', 'abstain']),
   validate, audit('committee', 'vote'), c.vote);
 

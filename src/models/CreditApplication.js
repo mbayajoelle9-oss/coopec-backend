@@ -7,6 +7,8 @@ const creditApplicationSchema = new mongoose.Schema({
   member: { type: mongoose.Schema.Types.ObjectId, ref: 'Member', required: true, index: true },
   agent: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   amountRequested: { type: Number, required: true },
+  channel: { type: String, enum: ['agent_pos', 'member_app', 'in_person'], default: 'in_person' },
+  inPersonReencoded: { type: Boolean, default: false }, // demande >500$ via appli Membre, re-saisie en présentiel
   amountApproved: Number,
   duration: { type: Number, required: true }, // mois
   interestRate: Number,
