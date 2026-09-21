@@ -193,8 +193,44 @@ async function postShareReimbursement(share) {
   });
 }
 
+/**
+ * Extourne une écriture existante : crée une nouvelle écriture avec les lignes
+ * inversées (débit ↔ crédit), et marque l'originale comme extournée. On ne supprime
+ * ni ne modifie jamais une écriture déjà posée — principe comptable de base.
+ */
+async function postReversal(originalEntryId, reason) {
+  const original = await JournalEntry.findById(originalEntryId);
+  if (!original) throw new Error('Écriture à extourner introuvable.');
+  if (original.reversed) throw new Error('Cette écriture a déjà été extournée.');
+
+  const reversedLines = original.lines.map((l) => ({
+    account: l.account, debit: l.credit, credit: l.debit, label: `Extourne — ${l.label || ''}`,
+  }));
+  const reversal = await post({
+    narrative: `Extourne de ${original.reference} — ${reason || 'annulation'}`,
+    lines: reversedLines, sourceModule: original.sourceModule, sourceId: original.sourceId,
+  });
+  original.reversed = true;
+  await original.save();
+  reversal.reversalOf = original._id;
+  await reversal.save();
+  return reversal;
+}
+
+/** Approvisionnement de caisse : la banque alimente la caisse physique (mouvement interne). */
+async function postCashSupply(op) {
+  return post({
+    narrative: `Approvisionnement de caisse — réf. ${op.reference}`,
+    lines: [
+      { account: ACCOUNTS.CAISSE, debit: op.amount, credit: 0, label: 'Approvisionnement' },
+      { account: ACCOUNTS.BANQUE, debit: 0, credit: op.amount, label: 'Sortie banque' },
+    ],
+    sourceModule: 'accounting', sourceId: op._id,
+  });
+}
+
 module.exports = {
-  ACCOUNTS, post,
+  ACCOUNTS, post, postReversal, postCashSupply,
   postDeposit, postWithdrawal, postCreditDisbursement, postCreditRepayment,
   postReclassToArrears, postProvisionAdjustment, postShareSubscription, postShareReimbursement,
 };

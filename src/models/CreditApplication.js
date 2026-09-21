@@ -7,6 +7,7 @@ const creditApplicationSchema = new mongoose.Schema({
   member: { type: mongoose.Schema.Types.ObjectId, ref: 'Member', required: true, index: true },
   agent: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   amountRequested: { type: Number, required: true },
+  product: { type: mongoose.Schema.Types.ObjectId, ref: 'CreditProduct' }, // produit choisi (facultatif, rétrocompatible)
   channel: { type: String, enum: ['agent_pos', 'member_app', 'in_person'], default: 'in_person' },
   inPersonReencoded: { type: Boolean, default: false }, // demande >500$ via appli Membre, re-saisie en présentiel
   amountApproved: Number,
@@ -15,7 +16,17 @@ const creditApplicationSchema = new mongoose.Schema({
   purpose: String,
   monthlyIncome: Number,
   monthlyExpenses: Number,
-  proposedGuarantees: String,
+  proposedGuarantees: String, // conservé (texte libre) pour compatibilité avec les dossiers déjà créés
+  // Garanties structurées (Instruction BCC n°002/003) : type, valeur estimée, % de couverture exigé.
+  guarantees: {
+    type: [{
+      type: { type: String, enum: ['caution_solidaire', 'epargne_bloquee', 'bien_materiel', 'autre'] },
+      description: String,
+      value: Number, // valeur estimée de la garantie
+      coveragePercent: Number, // % du crédit couvert par cette garantie
+    }],
+    default: [],
+  },
   documents: [{ type: { type: String }, url: String, uploadedAt: { type: Date, default: Date.now } }],
   score: { type: Number, min: 0, max: 100 },
   status: { type: String, enum: CREDIT_APP_STATUS, default: 'submitted', index: true },

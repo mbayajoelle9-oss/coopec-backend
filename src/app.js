@@ -46,6 +46,14 @@ app.use(`${config.apiPrefix}/auth`, rateLimit({
 }));
 
 app.get('/', (req, res) => res.json({ success: true, service: 'COOPECI-DC API', docs: `${config.apiPrefix}/health` }));
+
+// Fichiers téléversés (photos, documents RH...) — en-tête explicite pour que
+// l'admin web, hébergé sur un autre domaine (Vercel), puisse charger ces images.
+app.use('/uploads', (req, res, next) => {
+  res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(require('path').join(__dirname, '..', 'uploads')));
+
 app.use(config.apiPrefix, routes);
 
 app.use(notFound);

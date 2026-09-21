@@ -5,11 +5,13 @@ const logger = require('./src/utils/logger');
 const { connectDB } = require('./src/config/database');
 const { connectRedis } = require('./src/config/redis');
 const { initFirebase } = require('./src/config/firebase');
+const { startScheduler } = require('./src/services/scheduler');
 
 (async () => {
   await connectDB();
   await connectRedis();
   initFirebase();
+  startScheduler();
 
   const server = app.listen(config.port, () => {
     logger.info(`[SERVER] COOPECI-DC API en écoute sur le port ${config.port} (${config.env})`);

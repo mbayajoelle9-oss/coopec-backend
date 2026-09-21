@@ -45,4 +45,50 @@ const consolidation = asyncHandler(async (req, res) => {
   res.json({ success: true, dashboard, par, balanceSheet, incomeStatement, shareCapital, generatedAt: new Date() });
 });
 
-module.exports = { auditLogs, consolidation };
+/** GET /governance/audit-logs/export — export CSV des pistes d'audit (inspection BCC). */
+const exportAuditLogs = asyncHandler(async (req, res) => {
+  const filter = {};
+  if (req.query.module) filter.module = req.query.module;
+  if (req.query.from || req.query.to) {
+    filter.timestamp = {};
+    if (req.query.from) filter.timestamp.$gte = new Date(req.query.from);
+    if (req.query.to) filter.timestamp.$lte = new Date(req.query.to);
+  }
+  const items = await AuditLog.find(filter).sort({ timestamp: -1 }).limit(5000)
+    .populate('user', 'name role').populate('member', 'firstName lastName memberNumber');
+
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const header = ['Date', 'Auteur', 'Rôle', 'Module', 'Action', 'Statut', 'Entité', 'IP'].join(',');
+  const rows = items.map((l) => [
+    new Date(l.timestamp).toLocaleString('fr-FR'),
+    l.user?.name || (l.member ? `${l.member.firstName} ${l.member.lastName}` : 'Système'),
+    l.user?.role || '-', l.module, l.action, l.status, l.entityId || '-', l.ipAddress || '-',
+  ].map(esc).join(','));
+  const csv = '\uFEFF' + [header, ...rows].join('\n'); // BOM pour un affichage correct des accents dans Excel
+
+  res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="pistes-audit.csv"' });
+  res.send(csv);
+});
+
+/** GET /governance/audit-logs/export-pdf — export PDF des pistes d'audit. */
+const exportAuditLogsPdf = asyncHandler(async (req, res) => {
+  const filter = {};
+  if (req.query.module) filter.module = req.query.module;
+  if (req.query.from || req.query.to) {
+    filter.timestamp = {};
+    if (req.query.from) filter.timestamp.$gte = new Date(req.query.from);
+    if (req.query.to) filter.timestamp.$lte = new Date(req.query.to);
+  }
+  const items = await AuditLog.find(filter).sort({ timestamp: -1 }).limit(2000)
+    .populate('user', 'name role').populate('member', 'firstName lastName memberNumber');
+
+  const pdfGenerator = require('../services/pdfGenerator');
+  const { getOrCreate: getSettings } = require('./settingsController');
+  const settings = await getSettings();
+  const buffer = await pdfGenerator.auditLogsPdf(items, settings.coopName);
+
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="pistes-audit.pdf"', 'Content-Length': buffer.length });
+  res.send(buffer);
+});
+
+module.exports = { auditLogs, exportAuditLogs, exportAuditLogsPdf, consolidation };

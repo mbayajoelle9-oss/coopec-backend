@@ -6,6 +6,7 @@ const Transaction = require('../models/Transaction');
 const BankTransfer = require('../models/BankTransfer');
 const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
+const BankAccount = require('../models/BankAccount');
 
 /**
  * GET /accounting/pending-transfer
@@ -18,7 +19,7 @@ const ChartOfAccount = require('../models/ChartOfAccount');
  */
 const pendingTransfer = asyncHandler(async (req, res) => {
   const filter = {
-    type: 'deposit', status: 'completed', bankTransferred: false,
+    type: 'deposit', status: 'completed', bankTransferred: false, pendingBankTransfer: false,
     paymentMethod: { $in: ['cash', 'mobile_money'] },
   };
   const items = await Transaction.find(filter).sort({ createdAt: 1 })
@@ -43,9 +44,9 @@ const pendingTransfer = asyncHandler(async (req, res) => {
 
 /**
  * POST /accounting/transfer
- * Enregistre un virement réellement effectué vers la banque, et marque les
- * transactions couvertes comme reversées. `transactionIds` doit lister les
- * dépôts Mobile Money sélectionnés par la comptabilité.
+ * Propose une remise en banque — n'a AUCUN effet comptable tant qu'une autre
+ * personne ne l'a pas confirmée (double validation, Instruction BCC n°002/008).
+ * `transactionIds` liste les dépôts sélectionnés par la comptabilité.
  */
 const recordTransfer = asyncHandler(async (req, res) => {
   const { amount, currency, reference, bankName, note, transactionIds } = req.body;
@@ -57,28 +58,57 @@ const recordTransfer = asyncHandler(async (req, res) => {
 
   const txns = await Transaction.find({
     _id: { $in: transactionIds }, type: 'deposit', status: 'completed',
-    paymentMethod: { $in: ['cash', 'mobile_money'] }, bankTransferred: false,
+    paymentMethod: { $in: ['cash', 'mobile_money'] }, bankTransferred: false, pendingBankTransfer: false,
   });
   if (txns.length !== transactionIds.length) {
-    throw new ApiError(409, 'Certaines transactions sélectionnées ne sont plus disponibles (déjà reversées ou modifiées). Rechargez la liste.');
+    throw new ApiError(409, 'Certaines transactions sélectionnées ne sont plus disponibles (déjà reversées, déjà réservées par une autre remise en attente, ou modifiées). Rechargez la liste.');
   }
 
   const transfer = await BankTransfer.create({
     amount: money(amount), currency: currency || 'CDF', reference, bankName, note,
-    transactionCount: txns.length, createdBy: req.actor?.id,
+    transactionCount: txns.length, transactionIds, status: 'pending', createdBy: req.actor?.id,
   });
 
-  await Transaction.updateMany(
-    { _id: { $in: transactionIds } },
-    { bankTransferred: true, bankTransfer: transfer._id },
-  );
+  await Transaction.updateMany({ _id: { $in: transactionIds } }, { pendingBankTransfer: true });
+
+  const notificationService = require('../services/notificationService');
+  const { ROLES } = require('../utils/constants');
+  await notificationService.notifyRoles([ROLES.DIRECTOR, ROLES.CHIEF_ACCOUNTANT], {
+    title: 'Remise en banque à confirmer',
+    message: `${req.actor?.name || 'Un agent'} propose un virement de ${transfer.amount} ${transfer.currency} (réf. ${reference}) — confirmation requise par une autre personne.`,
+    priority: 'high', metadata: { module: 'accounting', entityId: String(transfer._id), action: 'bank_transfer_pending' },
+  });
 
   res.status(201).json({ success: true, transfer });
 });
 
+/**
+ * POST /accounting/transfer/:id/confirm — confirmation par une AUTRE personne que
+ * celle qui a proposé le virement. C'est cette étape, et seulement elle, qui marque
+ * réellement les transactions comme reversées à la banque.
+ */
+const confirmTransfer = asyncHandler(async (req, res) => {
+  const transfer = await BankTransfer.findById(req.params.id);
+  if (!transfer) throw new ApiError(404, 'Virement introuvable.');
+  if (transfer.status !== 'pending') throw new ApiError(409, 'Ce virement a déjà été confirmé.');
+  if (String(transfer.createdBy) === String(req.actor?.id)) {
+    throw new ApiError(403, 'Une autre personne que celle qui a proposé ce virement doit le confirmer.');
+  }
+
+  await Transaction.updateMany(
+    { _id: { $in: transfer.transactionIds } },
+    { bankTransferred: true, pendingBankTransfer: false, bankTransfer: transfer._id },
+  );
+  transfer.status = 'confirmed'; transfer.confirmedBy = req.actor?.id; transfer.confirmedAt = new Date();
+  await transfer.save();
+
+  res.json({ success: true, transfer });
+});
+
 /** GET /accounting/transfers — historique des virements enregistrés. */
 const listTransfers = asyncHandler(async (req, res) => {
-  const transfers = await BankTransfer.find().sort({ createdAt: -1 }).populate('createdBy', 'name');
+  const transfers = await BankTransfer.find().sort({ createdAt: -1 })
+    .populate('createdBy', 'name').populate('confirmedBy', 'name');
   res.json({ success: true, data: transfers });
 });
 
@@ -239,8 +269,33 @@ const incomeStatement = asyncHandler(async (req, res) => {
   res.json({ success: true, ...data });
 });
 
+/** GET /accounting/bank-accounts — registre des comptes bancaires/Mobile Money déclarés. */
+const listBankAccounts = asyncHandler(async (req, res) => {
+  const accounts = await BankAccount.find().sort({ createdAt: 1 });
+  res.json({ success: true, data: accounts });
+});
+
+/** POST /accounting/bank-accounts — déclarer un nouveau compte. */
+const addBankAccount = asyncHandler(async (req, res) => {
+  const { label, bankName, accountNumber, type, note } = req.body;
+  if (!label) throw new ApiError(400, 'Le libellé du compte est requis.');
+  const account = await BankAccount.create({ label, bankName, accountNumber, type, note, createdBy: req.actor?.id });
+  res.status(201).json({ success: true, account });
+});
+
+/** PUT /accounting/bank-accounts/:id — modifier/désactiver un compte. */
+const updateBankAccount = asyncHandler(async (req, res) => {
+  const allowed = ['label', 'bankName', 'accountNumber', 'type', 'status', 'note'];
+  const patch = {};
+  allowed.forEach((k) => { if (req.body[k] !== undefined) patch[k] = req.body[k]; });
+  const account = await BankAccount.findByIdAndUpdate(req.params.id, patch, { new: true });
+  if (!account) throw new ApiError(404, 'Compte introuvable.');
+  res.json({ success: true, account });
+});
+
 module.exports = {
-  pendingTransfer, recordTransfer, listTransfers, agentCashPending,
+  pendingTransfer, recordTransfer, confirmTransfer, listTransfers, agentCashPending,
   computeBalanceSheet, computeIncomeStatement,
   chartOfAccounts, journal, ledger, trialBalance, balanceSheet, incomeStatement,
+  listBankAccounts, addBankAccount, updateBankAccount,
 };

@@ -19,8 +19,11 @@ const getSettings = asyncHandler(async (req, res) => {
 /** PUT /admin/settings — modification des paramètres (Administrateur uniquement). */
 const updateSettings = asyncHandler(async (req, res) => {
   const allowed = [
-    'coopName', 'coopFullName', 'approvalNumber', 'address', 'phone', 'email',
+    'coopName', 'coopFullName', 'approvalNumber', 'address', 'phone', 'email', 'logoUrl',
+    'employeeDocumentTypes',
     'defaultInterestRate', 'defaultLateFeeRate', 'shareUnitValue', 'creditRemoteMaxAmount',
+    'creditClassification', 'minLiquidityRatio', 'maxConcentrationRatio', 'cashMinAmount', 'cashMaxAmount',
+    'auditRetentionYears',
     'maxLoginAttempts', 'accountLockMinutes', 'activePaymentProvider', 'defaultCurrency',
   ];
   const patch = {};

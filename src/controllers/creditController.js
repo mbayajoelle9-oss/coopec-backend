@@ -29,7 +29,7 @@ function computeScore({ monthlyIncome = 0, monthlyExpenses = 0, amountRequested,
 
 /** POST /credits/applications — soumettre une demande. */
 const createApplication = asyncHandler(async (req, res) => {
-  const { memberId, amountRequested, duration, purpose, monthlyIncome, monthlyExpenses, proposedGuarantees, interestRate } = req.body;
+  const { memberId, amountRequested, duration, purpose, monthlyIncome, monthlyExpenses, proposedGuarantees, guarantees, interestRate, productId } = req.body;
   const member = await Member.findById(memberId);
   if (!member) throw new ApiError(404, 'Membre introuvable.');
   if (!(amountRequested > 0) || !(duration > 0)) throw new ApiError(400, 'Montant et durée requis.');
@@ -48,14 +48,37 @@ const createApplication = asyncHandler(async (req, res) => {
     );
   }
 
+  // Produit de crédit (facultatif) : si précisé, ses bornes s'appliquent et son taux devient la référence.
+  let product = null;
+  let effectiveRate = interestRate ?? settings.defaultInterestRate;
+  if (productId) {
+    const CreditProduct = require('../models/CreditProduct');
+    product = await CreditProduct.findOne({ _id: productId, active: true });
+    if (!product) throw new ApiError(404, 'Produit de crédit introuvable ou inactif.');
+    if (amountRequested < product.minAmount || amountRequested > product.maxAmount) {
+      throw new ApiError(400, `Ce produit (${product.name}) accepte des montants entre ${product.minAmount} et ${product.maxAmount}.`);
+    }
+    if (duration < product.minDuration || duration > product.maxDuration) {
+      throw new ApiError(400, `Ce produit (${product.name}) accepte des durées entre ${product.minDuration} et ${product.maxDuration} mois.`);
+    }
+    effectiveRate = interestRate ?? product.interestRate;
+  }
+
+  // Garanties structurées : couverture totale = somme(valeur × % de couverture). Alerte
+  // (non bloquante) si la couverture totale est inférieure au montant demandé — laisse
+  // la décision finale au Responsable Crédit/Conseil d'Administration lors du vote.
+  const guaranteeList = Array.isArray(guarantees) ? guarantees : [];
+  const totalCoverage = guaranteeList.reduce((s, g) => s + (g.value || 0) * ((g.coveragePercent || 0) / 100), 0);
+  const guaranteeInsufficient = (product?.guaranteeRequired ?? true) && guaranteeList.length > 0 && totalCoverage < amountRequested;
+
   const score = computeScore({ monthlyIncome, monthlyExpenses, amountRequested, duration });
   const app = new CreditApplication({
     applicationNumber: genReference('CRA'),
     member: memberId, agent: req.actor?.kind === 'user' ? req.actor.id : undefined,
     amountRequested: money(amountRequested), duration, channel,
-    inPersonReencoded: channel === 'in_person',
-    interestRate: interestRate ?? settings.defaultInterestRate,
-    purpose, monthlyIncome, monthlyExpenses, proposedGuarantees, score,
+    product: product?._id, inPersonReencoded: channel === 'in_person',
+    interestRate: effectiveRate,
+    purpose, monthlyIncome, monthlyExpenses, proposedGuarantees, guarantees: guaranteeList, score,
     createdBy: req.actor?.id,
   });
   app.pushStatus('submitted', 'Demande créée', req.actor?.id);
@@ -63,11 +86,12 @@ const createApplication = asyncHandler(async (req, res) => {
 
   await notificationService.notifyRoles([ROLES.CREDIT_MANAGER, ROLES.DIRECTOR], {
     title: 'Nouvelle demande de crédit',
-    message: `${member.firstName} ${member.lastName} a soumis une demande de ${money(amountRequested)} (réf. ${app.applicationNumber}).`,
+    message: `${member.firstName} ${member.lastName} a soumis une demande de ${money(amountRequested)} (réf. ${app.applicationNumber}).` +
+      (guaranteeInsufficient ? ' ⚠️ Garanties déclarées insuffisantes par rapport au montant.' : ''),
     metadata: { module: 'credit', entityId: String(app._id), action: 'application_submitted' },
   });
 
-  res.status(201).json({ success: true, application: app });
+  res.status(201).json({ success: true, application: app, guaranteeInsufficient });
 });
 
 /** GET /credits/applications — liste (Admin/agent). */
@@ -143,6 +167,27 @@ const disburse = asyncHandler(async (req, res) => {
   if (app.status !== 'approved') throw new ApiError(400, 'La demande doit être approuvée.');
 
   const settings = await getSettings();
+
+  // Limite de concentration (Instruction BCC n°002) : un crédit ne peut pas dépasser
+  // un pourcentage donné des fonds propres de la coopérative (approximés ici par le
+  // capital en parts sociales, seule donnée de fonds propres disponible en continu).
+  if (settings.maxConcentrationRatio) {
+    const shareCapitalController = require('./shareCapitalController');
+    const shareOverview = await shareCapitalController.computeOverview();
+    const fondsPropres = shareOverview.grandTotal;
+    const principalCheck = app.amountApproved || app.amountRequested;
+    if (fondsPropres > 0) {
+      const ratio = (principalCheck / fondsPropres) * 100;
+      if (ratio > settings.maxConcentrationRatio) {
+        throw new ApiError(
+          409,
+          `Ce crédit représente ${ratio.toFixed(1)} % des fonds propres (limite paramétrée : ${settings.maxConcentrationRatio} %). ` +
+          "Décaissement bloqué — limite de concentration dépassée (Instruction BCC n°002).",
+        );
+      }
+    }
+  }
+
   const principal = app.amountApproved || app.amountRequested;
   const rate = app.interestRate ?? settings.defaultInterestRate;
   const now = new Date();

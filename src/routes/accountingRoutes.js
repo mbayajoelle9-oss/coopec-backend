@@ -30,5 +30,14 @@ router.post('/transfer',
   CAN_RECONCILE,
   body('amount').isFloat({ gt: 0 }), body('reference').notEmpty(), body('transactionIds').isArray({ min: 1 }),
   validate, audit('accounting', 'bank_transfer_recorded'), c.recordTransfer);
+router.post('/transfer/:id/confirm', CAN_RECONCILE, audit('accounting', 'bank_transfer_confirmed'), c.confirmTransfer);
+
+router.get('/bank-accounts', CAN_VIEW, c.listBankAccounts);
+router.post('/bank-accounts', CAN_RECONCILE, body('label').notEmpty(), validate, audit('accounting', 'bank_account_add'), c.addBankAccount);
+router.put('/bank-accounts/:id', CAN_RECONCILE, audit('accounting', 'bank_account_update'), c.updateBankAccount);
+
+const { upload } = require('../middleware/upload');
+const reconciliationController = require('../controllers/reconciliationController');
+router.post('/reconciliation/import', CAN_RECONCILE, upload.single('file'), reconciliationController.importStatement);
 
 module.exports = router;

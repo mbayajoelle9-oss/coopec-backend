@@ -14,7 +14,14 @@ const bankTransferSchema = new mongoose.Schema({
   bankName: String,
   note: String,
   transactionCount: { type: Number, default: 0 },
+  transactionIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' }],
+  // Double validation (Instruction BCC n°002/008) : une remise en banque est d'abord
+  // proposée, puis confirmée par une AUTRE personne avant que les transactions ne
+  // soient effectivement marquées comme reversées.
+  status: { type: String, enum: ['pending', 'confirmed'], default: 'pending' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  confirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  confirmedAt: Date,
 }, { timestamps: true });
 
 module.exports = mongoose.model('BankTransfer', bankTransferSchema);

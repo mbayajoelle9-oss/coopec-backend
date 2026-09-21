@@ -22,6 +22,7 @@ const repaymentSchema = new mongoose.Schema({
   notes: String,
   validatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   validationDate: Date,
+  lastReminderSent: Date, // évite de renvoyer le même rappel plusieurs fois le même jour
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 

@@ -9,6 +9,8 @@ module.exports = {
     CREDIT_MANAGER_DEPUTY: 'credit_manager_deputy',
     CREDIT_CONTROLLER: 'credit_controller',
     CASHIER: 'cashier',
+    CHIEF_CASHIER: 'chief_cashier',
+    INTERNAL_CONTROLLER: 'internal_controller',
     ACCOUNTANT: 'accountant',
     CHIEF_ACCOUNTANT: 'chief_accountant',
     CHIEF_ACCOUNTANT_DEPUTY: 'chief_accountant_deputy',

@@ -11,6 +11,7 @@ const notificationService = require('../services/notificationService');
 const pdfGenerator = require('../services/pdfGenerator');
 const journalService = require('../services/journalService');
 const logger = require('../utils/logger');
+const { getOrCreate: getSettings } = require('./settingsController');
 
 /**
  * POST /transactions/deposit/request
@@ -128,10 +129,53 @@ const depositConfirm = asyncHandler(async (req, res) => {
   const trx = await Transaction.findOne({ reference, type: 'deposit' });
   if (!trx) throw new ApiError(404, 'Transaction introuvable.');
   if (trx.status === 'completed') return res.json({ success: true, message: 'Déjà confirmée.' });
+
+  // Plafond d'encaisse (Instruction BCC n°002) : blocage réel, pas une simple alerte —
+  // un caissier ne peut pas valider un dépôt espèces qui ferait dépasser le plafond
+  // paramétré. Il doit d'abord faire remettre l'excédent à la banque.
+  if (trx.paymentMethod === 'cash') {
+    const settings = await getSettings();
+    if (settings.cashMaxAmount) {
+      const cashOnHand = await Transaction.aggregate([
+        { $match: { type: 'deposit', status: 'completed', paymentMethod: 'cash', bankTransferred: false } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]);
+      const projected = (cashOnHand[0]?.total || 0) + trx.amount;
+      if (projected > settings.cashMaxAmount) {
+        await notificationService.notifyRoles([ROLES.DIRECTOR, ROLES.CHIEF_ACCOUNTANT, ROLES.CHIEF_CASHIER], {
+          title: "Plafond d'encaisse — dépôt bloqué",
+          message: `Confirmer ce dépôt (réf. ${trx.reference}) ferait dépasser le plafond d'encaisse (${settings.cashMaxAmount} CDF). Une remise en banque est requise avant de continuer.`,
+          priority: 'high', metadata: { module: 'accounting', action: 'cash_ceiling_blocked' },
+        });
+        throw new ApiError(409, `Plafond d'encaisse dépassé : ce dépôt porterait la caisse à ${projected} CDF (plafond : ${settings.cashMaxAmount} CDF). Une remise en banque est requise avant de valider ce dépôt.`);
+      }
+    }
+  }
+
   const account = await Account.findById(trx.account);
   await settleDeposit(trx, account);
   trx.validatedBy = req.actor?.id;
   await trx.save();
+
+  // Alerte si l'encaisse descend sous le minimum requis (après un retrait par exemple —
+  // conservée ici en information continue, sans bloquer un dépôt qui fait au contraire remonter la caisse).
+  if (trx.paymentMethod === 'cash') {
+    try {
+      const settings = await getSettings();
+      const cashOnHand = await Transaction.aggregate([
+        { $match: { type: 'deposit', status: 'completed', paymentMethod: 'cash', bankTransferred: false } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]);
+      const total = cashOnHand[0]?.total || 0;
+      if (settings.cashMinAmount && total < settings.cashMinAmount) {
+        await notificationService.notifyRoles([ROLES.DIRECTOR, ROLES.CHIEF_ACCOUNTANT, ROLES.CHIEF_CASHIER], {
+          title: "Encaisse sous le seuil minimum",
+          message: `L'encaisse en caisse (${total} CDF) est en dessous du minimum requis (${settings.cashMinAmount} CDF). Un approvisionnement peut être nécessaire.`,
+          priority: 'medium', metadata: { module: 'accounting', action: 'cash_floor_breached' },
+        });
+      }
+    } catch (e) { logger.error(`[CAISSE] Échec vérification seuil minimum: ${e.message}`); }
+  }
 
   await notificationService.send({
     recipient: trx.member, type: 'push', title: 'Dépôt confirmé',

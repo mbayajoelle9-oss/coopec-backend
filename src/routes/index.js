@@ -15,6 +15,9 @@ router.use('/webhooks', require('./webhookRoutes'));
 router.use('/notifications', require('./notificationRoutes'));
 router.use('/accounting', require('./accountingRoutes'));
 router.use('/share-capital', require('./shareCapitalRoutes'));
+router.use('/credit-products', require('./creditProductRoutes'));
+router.use('/', require('./employeeRoutes'));
+router.use('/cash', require('./cashRoutes'));
 router.use('/governance', require('./governanceRoutes'));
 
 router.get('/health', (req, res) => res.json({ success: true, service: 'coopec-backend', time: new Date().toISOString() }));

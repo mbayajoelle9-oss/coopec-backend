@@ -11,9 +11,11 @@ const c = require('../controllers/adminController');
 router.use(protectUser, allowRoles(ROLES.SUPER_ADMIN, ROLES.DIRECTOR));
 
 router.post('/users',
-  body('name').notEmpty(), body('email').isEmail(), body('password').isLength({ min: 8 }),
+  body('email').isEmail(), body('password').isLength({ min: 8 }),
+  body('name').optional().notEmpty(), body('lastName').optional().notEmpty(),
   validate, audit('admin', 'user_create'), c.createUser);
 router.get('/users', c.listUsers);
+router.get('/users/:id', c.getUser);
 router.put('/users/:id', audit('admin', 'user_update'), c.updateUser);
 router.delete('/users/:id', audit('admin', 'user_delete'), c.deleteUser);
 

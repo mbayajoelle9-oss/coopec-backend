@@ -10,7 +10,17 @@ const permissionSchema = new mongoose.Schema({
 }, { _id: false });
 
 const userSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
+  name: { type: String, required: true, trim: true }, // nom d'affichage complet (calculé ou saisi)
+  // Identité complète (convention congolaise : Nom / Postnom / Prénom)
+  lastName: { type: String, trim: true }, // Nom
+  postName: { type: String, trim: true }, // Postnom
+  firstName: { type: String, trim: true }, // Prénom
+  photo: String, // URL de la photo de profil
+  idDocumentUrl: String, // pièce d'identité importée
+  origin: { type: String, trim: true }, // origine (province/territoire)
+  maritalStatus: { type: String, enum: ['celibataire', 'marie', 'divorce', 'veuf'] },
+  address: { type: String, trim: true },
+  education: { type: String, trim: true }, // études faites
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   password: { type: String, required: true, select: false },
   role: { type: String, enum: Object.values(ROLES), default: ROLES.VIEWER },
@@ -21,6 +31,8 @@ const userSchema = new mongoose.Schema({
   status: { type: String, enum: ['active', 'inactive', 'suspended'], default: 'active' },
   lastLogin: Date,
   lastIp: String,
+  loginAttempts: { type: Number, default: 0 },
+  lockedUntil: Date,
   twoFactorEnabled: { type: Boolean, default: false },
   twoFactorSecret: { type: String, select: false },
   resetPasswordToken: { type: String, select: false },
