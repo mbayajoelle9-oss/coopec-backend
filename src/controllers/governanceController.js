@@ -1,6 +1,6 @@
 'use strict';
 const asyncHandler = require('../utils/asyncHandler');
-const { paginate } = require('../utils/helpers');
+const { paginate, nextDocNumber } = require('../utils/helpers');
 const AuditLog = require('../models/AuditLog');
 const accountingController = require('./accountingController');
 const shareCapitalController = require('./shareCapitalController');
@@ -85,7 +85,8 @@ const exportAuditLogsPdf = asyncHandler(async (req, res) => {
   const pdfGenerator = require('../services/pdfGenerator');
   const { getOrCreate: getSettings } = require('./settingsController');
   const settings = await getSettings();
-  const buffer = await pdfGenerator.auditLogsPdf(items, settings.coopName);
+  const docNumber = await nextDocNumber('AUD');
+  const buffer = await pdfGenerator.auditLogsPdf(items, settings, docNumber);
 
   res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="pistes-audit.pdf"', 'Content-Length': buffer.length });
   res.send(buffer);

@@ -1,7 +1,7 @@
 'use strict';
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../middleware/errorHandler');
-const { genReference, paginate, money, amortizationSchedule } = require('../utils/helpers');
+const { genReference, paginate, money, amortizationSchedule, nextDocNumber } = require('../utils/helpers');
 const config = require('../config');
 const CreditApplication = require('../models/CreditApplication');
 const Credit = require('../models/Credit');
@@ -344,7 +344,24 @@ async function applyRepayment(repayment, amount, providerTransactionId) {
   return repayment;
 }
 
+/** GET /credits/:id/contract/print — contrat de crédit + échéancier, imprimable. */
+const printContract = asyncHandler(async (req, res) => {
+  const credit = await Credit.findById(req.params.id);
+  if (!credit) throw new ApiError(404, 'Crédit introuvable.');
+  const member = await Member.findById(credit.member).select('firstName lastName memberNumber');
+  const schedule = await Repayment.find({ credit: credit._id }).sort({ installmentNumber: 1 });
+
+  const pdfGenerator = require('../services/pdfGenerator');
+  const { getOrCreate: getSettings } = require('./settingsController');
+  const settings = await getSettings();
+  const docNumber = await nextDocNumber('CTR');
+  const buffer = await pdfGenerator.creditContract(credit, member, schedule, settings, docNumber);
+
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="contrat-${credit._id}.pdf"`, 'Content-Length': buffer.length });
+  res.send(buffer);
+});
+
 module.exports = {
   createApplication, listApplications, applicationDetail, updateStatus,
-  disburse, creditDetail, memberCredits, initiateRepayment, applyRepayment, computeScore,
+  disburse, creditDetail, memberCredits, initiateRepayment, applyRepayment, computeScore, printContract,
 };

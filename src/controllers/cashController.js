@@ -1,7 +1,7 @@
 'use strict';
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../middleware/errorHandler');
-const { genReference, money } = require('../utils/helpers');
+const { genReference, money, nextDocNumber } = require('../utils/helpers');
 const { ROLES } = require('../utils/constants');
 const SensitiveOperation = require('../models/SensitiveOperation');
 const Transaction = require('../models/Transaction');
@@ -145,12 +145,13 @@ const dailyReport = asyncHandler(async (req, res) => {
   const totalIn = deposits.reduce((s, d) => s + d.amount, 0) + supplies.reduce((s, d) => s + d.amount, 0);
   const totalOut = withdrawals.reduce((s, d) => s + d.amount, 0) + remittances.reduce((s, d) => s + d.amount, 0);
   const settings = await getSettings();
+  const docNumber = await nextDocNumber('JRN');
 
   const buffer = await pdfGenerator.dailyCashReport({
     date: dateStr,
     deposits: withNames(deposits), withdrawals: withNames(withdrawals), supplies, remittances,
     openingBalance: '—', closingBalance: money(totalIn - totalOut),
-  }, settings.coopName);
+  }, settings, docNumber);
 
   res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="caisse-${dateStr}.pdf"`, 'Content-Length': buffer.length });
   res.send(buffer);

@@ -293,9 +293,64 @@ const updateBankAccount = asyncHandler(async (req, res) => {
   res.json({ success: true, account });
 });
 
+/** GET /accounting/bank-statement/print — relevé bancaire imprimable (compte 521). */
+const printBankStatement = asyncHandler(async (req, res) => {
+  const account = await ChartOfAccount.findOne({ code: '521' });
+  const entries = await JournalEntry.find({ 'lines.account': '521' }).sort({ date: 1, createdAt: 1 });
+  let balance = 0;
+  const rows = [];
+  for (const e of entries) {
+    for (const l of e.lines) {
+      if (l.account !== '521') continue;
+      balance = money(balance + (l.debit - l.credit));
+      rows.push({ date: e.date, reference: e.reference, narrative: e.narrative, label: l.label, debit: l.debit, credit: l.credit, balance });
+    }
+  }
+
+  const pdfGenerator = require('../services/pdfGenerator');
+  const { getOrCreate: getSettings } = require('./settingsController');
+  const { nextDocNumber } = require('../utils/helpers');
+  const settings = await getSettings();
+  const docNumber = await nextDocNumber('REL');
+  const buffer = await pdfGenerator.bankStatement({ periodLabel: req.query.period || null, rows, closingBalance: balance }, settings, docNumber);
+
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="releve-bancaire.pdf"', 'Content-Length': buffer.length });
+  res.send(buffer);
+});
+
+/** GET /accounting/statements/:type/print — Bilan, Compte de résultat ou Balance générale, en PDF. */
+const printAccountingStatement = asyncHandler(async (req, res) => {
+  const { type } = req.params;
+  if (!['balanceSheet', 'incomeStatement', 'trialBalance'].includes(type)) throw new ApiError(400, 'Type d\'état inconnu.');
+
+  let data;
+  if (type === 'balanceSheet') data = await computeBalanceSheet();
+  else if (type === 'incomeStatement') data = await computeIncomeStatement();
+  else {
+    const accounts = await ChartOfAccount.find().sort({ code: 1 });
+    const totals = await JournalEntry.aggregate([
+      { $unwind: '$lines' },
+      { $group: { _id: '$lines.account', debit: { $sum: '$lines.debit' }, credit: { $sum: '$lines.credit' } } },
+    ]);
+    const byCode = Object.fromEntries(totals.map((t) => [t._id, t]));
+    data = { data: accounts.map((a) => ({ code: a.code, label: a.label, debit: byCode[a.code]?.debit || 0, credit: byCode[a.code]?.credit || 0 })) };
+  }
+
+  const pdfGenerator = require('../services/pdfGenerator');
+  const { getOrCreate: getSettings } = require('./settingsController');
+  const { nextDocNumber } = require('../utils/helpers');
+  const settings = await getSettings();
+  const docNumber = await nextDocNumber(type === 'balanceSheet' ? 'BIL' : type === 'incomeStatement' ? 'RES' : 'BAL');
+  const buffer = await pdfGenerator.accountingStatementPdf(type, data, settings, docNumber);
+
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${type}.pdf"`, 'Content-Length': buffer.length });
+  res.send(buffer);
+});
+
 module.exports = {
   pendingTransfer, recordTransfer, confirmTransfer, listTransfers, agentCashPending,
   computeBalanceSheet, computeIncomeStatement,
   chartOfAccounts, journal, ledger, trialBalance, balanceSheet, incomeStatement,
   listBankAccounts, addBankAccount, updateBankAccount,
+  printBankStatement, printAccountingStatement,
 };

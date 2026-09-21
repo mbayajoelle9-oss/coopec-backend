@@ -14,6 +14,24 @@ function genMemberNumber(seq) {
   return `CPC-${String(seq).padStart(6, '0')}`;
 }
 
+/** Compteur atomique partagé (membre, documents imprimés...). */
+async function nextSeq(name) {
+  const Counter = require('../models/Counter');
+  const c = await Counter.findByIdAndUpdate(name, { $inc: { seq: 1 } }, { new: true, upsert: true });
+  return c.seq;
+}
+
+/**
+ * Numéro séquentiel d'un document imprimé (reçu, bordereau, contrat, attestation...).
+ * Volontairement DIFFÉRENT de genReference (aléatoire) : un numéro qui s'incrémente
+ * de 1 en 1 permet à un agent de repérer un trou ou un doublon en le recoupant avec
+ * un carnet de documents papier — exactement comme un carnet de reçus pré-numéroté.
+ */
+async function nextDocNumber(prefix) {
+  const seq = await nextSeq(`docnum:${prefix}`);
+  return `${prefix}-${String(seq).padStart(6, '0')}`;
+}
+
 /** OTP numérique à n chiffres. */
 function genOTP(length = 6) {
   const max = 10 ** length;
@@ -80,5 +98,5 @@ function paginate(query) {
 }
 
 module.exports = {
-  genReference, genMemberNumber, genOTP, money, amortizationSchedule, paginate,
+  genReference, genMemberNumber, genOTP, money, amortizationSchedule, paginate, nextSeq, nextDocNumber,
 };

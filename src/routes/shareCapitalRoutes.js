@@ -13,6 +13,7 @@ const CAN_VIEW = [...CAN_MANAGE, ROLES.CREDIT_MANAGER, ROLES.BOARD_PRESIDENT, RO
 
 router.get('/', protectUser, allowRoles(...CAN_VIEW), c.overview);
 router.get('/member/:memberId', protectUser, allowRoles(...CAN_VIEW), c.memberSummary);
+router.get('/:id/certificate', protectUser, allowRoles(...CAN_VIEW), c.printCertificate);
 
 router.post('/subscribe',
   protectUser, allowRoles(...CAN_MANAGE),

@@ -109,4 +109,20 @@ const overview = asyncHandler(async (req, res) => {
   res.json({ success: true, ...data });
 });
 
-module.exports = { subscribe, reimburse, memberSummary, overview, computeOverview };
+/** GET /share-capital/:id/certificate — attestation imprimable (souscription ou remboursement). */
+const printCertificate = asyncHandler(async (req, res) => {
+  const share = await ShareCapital.findById(req.params.id);
+  if (!share) throw new ApiError(404, 'Mouvement introuvable.');
+  const member = await Member.findById(share.member).select('firstName lastName memberNumber');
+
+  const pdfGenerator = require('../services/pdfGenerator');
+  const { nextDocNumber } = require('../utils/helpers');
+  const settings = await getSettings();
+  const docNumber = await nextDocNumber(share.type === 'subscription' ? 'ATS' : 'ATR');
+  const buffer = await pdfGenerator.shareCapitalCertificate(share, member, settings, docNumber);
+
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="attestation-${share.reference}.pdf"`, 'Content-Length': buffer.length });
+  res.send(buffer);
+});
+
+module.exports = { subscribe, reimburse, memberSummary, overview, computeOverview, printCertificate };

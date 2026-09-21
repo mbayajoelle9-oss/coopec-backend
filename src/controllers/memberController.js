@@ -1,16 +1,10 @@
 'use strict';
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../middleware/errorHandler');
-const { genMemberNumber, genReference, genOTP, paginate } = require('../utils/helpers');
+const { genMemberNumber, genReference, genOTP, paginate, nextSeq } = require('../utils/helpers');
 const notificationService = require('../services/notificationService');
 const Member = require('../models/Member');
 const Account = require('../models/Account');
-const Counter = require('../models/Counter');
-
-async function nextSeq(name) {
-  const c = await Counter.findByIdAndUpdate(name, { $inc: { seq: 1 } }, { new: true, upsert: true });
-  return c.seq;
-}
 
 /** POST /members/register — inscription (crée aussi un compte épargne). */
 const register = asyncHandler(async (req, res) => {

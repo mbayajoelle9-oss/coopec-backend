@@ -28,6 +28,7 @@ router.post('/applications/:id/disburse',
 
 router.get('/member/:memberId', protectUser, c.memberCredits);
 router.get('/:id', protectUser, c.creditDetail);
+router.get('/:id/contract/print', protectUser, allowRoles(ROLES.CREDIT_MANAGER, ROLES.CREDIT_MANAGER_DEPUTY, ROLES.DIRECTOR, ROLES.CASHIER), c.printContract);
 
 router.post('/:id/repay',
   protectUser, body('amount').isFloat({ gt: 0 }),

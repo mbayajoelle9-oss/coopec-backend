@@ -1,5 +1,6 @@
 'use strict';
 const asyncHandler = require('../utils/asyncHandler');
+const { nextDocNumber } = require('../utils/helpers');
 const { ApiError } = require('../middleware/errorHandler');
 const User = require('../models/User');
 const EmployeeDocument = require('../models/EmployeeDocument');
@@ -63,7 +64,8 @@ const fiche = asyncHandler(async (req, res) => {
   const documents = await EmployeeDocument.find({ user: user._id }).sort({ docType: 1 });
   const settings = await getSettings();
 
-  const buffer = await pdfGenerator.employeeFiche(user, documents, settings.coopName);
+  const docNumber = await nextDocNumber('FIC');
+  const buffer = await pdfGenerator.employeeFiche(user, documents, settings, docNumber);
   res.set({
     'Content-Type': 'application/pdf',
     'Content-Disposition': `inline; filename="fiche-employe-${user._id}.pdf"`,

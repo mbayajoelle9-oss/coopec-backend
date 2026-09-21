@@ -1,7 +1,7 @@
 'use strict';
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../middleware/errorHandler');
-const { genReference, paginate, money } = require('../utils/helpers');
+const { genReference, paginate, money, nextDocNumber } = require('../utils/helpers');
 const { PAYMENT_RESULT, ROLES } = require('../utils/constants');
 const paymentProvider = require('../services/payment');
 const Account = require('../models/Account');
@@ -328,9 +328,11 @@ const receipt = asyncHandler(async (req, res) => {
   if (!isCashierOrDirector && !isOwnAgentTrx) throw new ApiError(403, "Vous n'avez pas accès à ce reçu.");
 
   const member = await Member.findById(trx.member).select('firstName lastName memberNumber');
+  const settings = await getSettings();
+  const docNumber = await nextDocNumber('REC');
   const buffer = trx.type === 'deposit' && trx.paymentMethod === 'cash'
-    ? await pdfGenerator.cashDepositDualReceipt(trx, member)
-    : await pdfGenerator.transactionReceipt(trx, member);
+    ? await pdfGenerator.cashDepositDualReceipt(trx, member, settings, docNumber)
+    : await pdfGenerator.transactionReceipt(trx, member, settings, docNumber);
   res.set({
     'Content-Type': 'application/pdf',
     'Content-Disposition': `inline; filename="recu-${trx.reference}.pdf"`,
@@ -351,9 +353,11 @@ const voucher = asyncHandler(async (req, res) => {
   if (trx.status !== 'completed') throw new ApiError(409, 'Le dépôt doit être validé par la hiérarchie avant de générer le bordereau.');
 
   const member = await Member.findById(trx.member).select('firstName lastName memberNumber');
+  const settings = await getSettings();
+  const docNumber = await nextDocNumber('BDV');
   const buffer = await pdfGenerator.depositVoucher(trx, member, {
     agentName: trx.initiatedBy?.name, validatedByName: trx.validatedBy?.name,
-  });
+  }, settings, docNumber);
   res.set({
     'Content-Type': 'application/pdf',
     'Content-Disposition': `inline; filename="bordereau-${trx.reference}.pdf"`,
