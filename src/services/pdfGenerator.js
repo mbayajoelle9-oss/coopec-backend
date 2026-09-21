@@ -44,79 +44,88 @@ function renderPdf(makeDoc, drawFn) {
 }
 
 /**
- * En-tête commun à tous les documents imprimés : bandeau aux couleurs de la coopérative,
- * logo (si configuré dans Paramétrages), coordonnées complètes, titre du document et
- * son numéro séquentiel (voir utils/helpers.nextDocNumber — indispensable pour recouper
- * avec des documents tenus manuellement par certains agents sur le terrain).
- * Retourne la hauteur occupée, pour placer la suite du contenu juste en dessous.
+ * En-tête sobre et classique — dans l'esprit d'un vrai document administratif/financier
+ * (nom de la coopérative en clair, coordonnées en petit texte gris, type de document
+ * dans un encadré à droite, comme sur une facture). Retourne le y juste après l'en-tête.
  */
-async function drawLetterhead(doc, settings, { title, docNumber, height = 90 } = {}) {
+async function drawClassicHeader(doc, settings, { docType, docNumber, date } = {}) {
+  const margin = 40;
   const w = doc.page.width;
-  doc.rect(0, 0, w, height).fill(NAVY);
+  let y = margin;
 
   const logoBuffer = await fetchImageBuffer(settings?.logoUrl);
-  let textX = 40;
+  let textX = margin;
   if (logoBuffer) {
-    try { doc.image(logoBuffer, 34, 16, { fit: [58, 58] }); textX = 104; }
+    try { doc.image(logoBuffer, margin, y, { fit: [44, 44] }); textX = margin + 56; }
     catch (e) { /* image illisible -> on continue sans logo */ }
   }
 
-  doc.fillColor('#ffffff').fontSize(15).text(settings?.coopName || 'COOPEC-DC', textX, 16, { width: w - textX - 230 });
+  doc.fillColor(NAVY).fontSize(17).font('Helvetica-Bold').text(settings?.coopName || 'COOPEC-DC', textX, y, { width: 300 });
+  doc.font('Helvetica');
   const coordLines = [
     settings?.address,
     [settings?.phone, settings?.email].filter(Boolean).join('  —  '),
     settings?.approvalNumber ? `Agrément BCC n° ${settings.approvalNumber}` : null,
   ].filter(Boolean);
-  doc.fillColor('#C7D3FA').fontSize(8).text(coordLines.join('\n'), textX, 37, { width: w - textX - 230 });
+  doc.fillColor('#666666').fontSize(8).text(coordLines.join('\n'), textX, y + 22, { width: 300, lineGap: 1.5 });
 
-  if (title) doc.fillColor('#ffffff').fontSize(13).text(title, w - 250, 20, { width: 210, align: 'right' });
-  if (docNumber) doc.fillColor('#C7D3FA').fontSize(9.5).text(`N° ${docNumber}`, w - 250, 40, { width: 210, align: 'right' });
+  const boxW = 170; const boxX = w - margin - boxW; const boxY = margin;
+  const boxH = docNumber ? 46 : 30;
+  doc.rect(boxX, boxY, boxW, boxH).lineWidth(1.2).strokeColor(NAVY).stroke();
+  doc.fillColor(NAVY).fontSize(12).font('Helvetica-Bold').text((docType || 'DOCUMENT').toUpperCase(), boxX, boxY + 9, { width: boxW, align: 'center', characterSpacing: 0.4 });
+  doc.font('Helvetica');
+  if (docNumber) doc.fillColor('#555555').fontSize(8.5).text(`N° ${docNumber}`, boxX, boxY + 26, { width: boxW, align: 'center' });
+  if (date) doc.fillColor('#888888').fontSize(8).text(date, boxX, boxY + (docNumber ? 37 : 21), { width: boxW, align: 'center' });
 
-  return height;
+  y = margin + 64;
+  doc.moveTo(margin, y).lineTo(w - margin, y).lineWidth(1.6).strokeColor(NAVY).stroke();
+  return y + 14;
 }
 
-/** Liseré + titre de section, dans le style des autres documents COOPEC-DC. Retourne le y suivant. */
+/** Titre de section discret — petites majuscules soulignées d'un filet gris. */
 function drawSectionTitle(doc, x, y, text) {
-  doc.rect(x, y, 4, 15).fill(ACCENT);
-  doc.fillColor(NAVY).fontSize(12).text(text, x + 12, y - 1);
-  return y + 26;
+  doc.fillColor(NAVY).fontSize(9.5).font('Helvetica-Bold').text(text.toUpperCase(), x, y, { characterSpacing: 0.3 });
+  doc.font('Helvetica');
+  const ty = y + 13;
+  doc.moveTo(x, ty).lineTo(doc.page.width - 40, ty).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+  return ty + 10;
 }
 
 /**
- * Grille de mini-cartes « étiquette / valeur » — remplace les lignes plates "Label : valeur"
- * par une mise en page en cartes, dans le même style que les autres documents COOPEC-DC.
- * Retourne le y juste après la grille.
+ * Tableau « étiquette / valeur » à bordures fines, deux paires par ligne — le format
+ * classique d'un document administratif (comme un état civil ou une fiche officielle).
+ * Retourne le y juste après le tableau.
  */
-function drawInfoGrid(doc, x, y, width, items, { cols = 2, cardH = 40, gap = 10 } = {}) {
-  const cardW = (width - gap * (cols - 1)) / cols;
-  let cx = x; let cy = y; let col = 0;
-  items.forEach(([label, value]) => {
-    doc.roundedRect(cx, cy, cardW, cardH, 7).fillAndStroke('#F6F8FD', '#EBEFF8');
-    doc.fillColor('#8891B0').fontSize(7.5).text(label.toUpperCase(), cx + 11, cy + 8, { width: cardW - 22 });
-    doc.fillColor(NAVY).fontSize(10.5).text(String(value ?? '-'), cx + 11, cy + 20, { width: cardW - 22 });
-    col += 1;
-    if (col >= cols) { col = 0; cx = x; cy += cardH + gap; } else { cx += cardW + gap; }
-  });
-  const rows = Math.ceil(items.length / cols);
-  return y + rows * (cardH + gap);
+function drawKeyValueTable(doc, x, y, width, pairs) {
+  const rowH = 24; const labelW = 110; const half = width / 2;
+  let cy = y;
+  for (let i = 0; i < pairs.length; i += 2) {
+    const rowPairs = [pairs[i], pairs[i + 1]].filter(Boolean);
+    doc.rect(x, cy, width, rowH).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+    if (rowPairs.length === 2) doc.moveTo(x + half, cy).lineTo(x + half, cy + rowH).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+    rowPairs.forEach(([label, value], idx) => {
+      const cx = x + idx * half;
+      doc.moveTo(cx + labelW, cy).lineTo(cx + labelW, cy + rowH).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+      doc.rect(cx, cy, labelW, rowH).fillColor('#FAFAFB').fill();
+      doc.fillColor('#666666').fontSize(8.5).font('Helvetica-Bold').text(label, cx + 8, cy + 7, { width: labelW - 14 });
+      doc.font('Helvetica').fillColor('#111111').fontSize(9).text(String(value ?? '-'), cx + labelW + 8, cy + 7, { width: half - labelW - 14 });
+    });
+    cy += rowH;
+  }
+  return cy;
 }
 
-/** Cercle avatar : photo si disponible, sinon initiales sur fond dégradé façon marque. */
-async function drawAvatar(doc, cx, cy, r, { photoUrl, initials } = {}) {
+/** Petit encadré photo/initiales — carré, sobre, jamais superposé au reste (style pièce d'identité). */
+async function drawPhotoBox(doc, x, y, size, { photoUrl, initials } = {}) {
+  doc.rect(x, y, size, size).lineWidth(1).strokeColor('#CCCCCC').stroke();
   const buf = await fetchImageBuffer(photoUrl);
   if (buf) {
-    try {
-      doc.save();
-      doc.circle(cx, cy, r).clip();
-      doc.image(buf, cx - r, cy - r, { width: r * 2, height: r * 2 });
-      doc.restore();
-      return;
-    } catch (e) { /* image illisible -> repli sur les initiales */ }
+    try { doc.image(buf, x + 1, y + 1, { width: size - 2, height: size - 2 }); return; }
+    catch (e) { /* image illisible -> repli sur les initiales */ }
   }
-  doc.save();
-  doc.circle(cx, cy, r).fill(ACCENT);
-  doc.fillColor('#ffffff').fontSize(r * 0.8).text(initials || '?', cx - r, cy - r * 0.55, { width: r * 2, align: 'center' });
-  doc.restore();
+  doc.rect(x + 1, y + 1, size - 2, size - 2).fillColor('#F3F4F8').fill();
+  doc.fillColor(NAVY).fontSize(size * 0.32).font('Helvetica-Bold').text(initials || '?', x, y + size * 0.32, { width: size, align: 'center' });
+  doc.font('Helvetica');
 }
 
 const STATUS_LABELS = { pending: 'EN ATTENTE DE CONFIRMATION', completed: 'CONFIRMÉ', failed: 'ÉCHOUÉ', cancelled: 'ANNULÉ' };
@@ -206,9 +215,8 @@ function depositVoucher(trx, member, { agentName, validatedByName } = {}, settin
   return renderPdf(
     () => new PDFDocument({ size: 'A5', margin: 40 }),
     async (doc) => {
-      const headerH = await drawLetterhead(doc, settings, { title: 'Bordereau de versement', docNumber, height: 78 });
-      doc.y = headerH + 22; doc.x = 40;
-      doc.fillColor('#000000').fontSize(10.5);
+      let y = await drawClassicHeader(doc, settings, { docType: 'Bordereau de versement', docNumber, date: new Date().toLocaleDateString('fr-FR') });
+      doc.fillColor('#000000').fontSize(9.5);
       const rows = [
         ['Référence transaction', trx.reference],
         ['Montant remis', `${trx.amount} ${trx.currency || 'CDF'}`],
@@ -217,20 +225,21 @@ function depositVoucher(trx, member, { agentName, validatedByName } = {}, settin
         ['Validé par (hiérarchie)', validatedByName || '-'],
         ['Date du versement', new Date().toLocaleString('fr-FR')],
       ];
-      rows.forEach(([k, v]) => {
-        doc.fillColor(NAVY).text(`${k} : `, 40, doc.y, { continued: true, width: doc.page.width - 80 }).fillColor('#000000').text(String(v));
-      });
+      y = drawKeyValueTable(doc, 40, y + 4, doc.page.width - 80, rows.length % 2 === 0 ? rows : [...rows, null]);
 
-      doc.moveDown(2).fontSize(9.5).fillColor('#3A4160')
-        .text('Ce bordereau atteste que les espèces ci-dessus ont été physiquement remises à la caisse de la coopérative et intégrées à sa trésorerie.', 40, doc.y, { width: doc.page.width - 80 });
+      y += 16;
+      doc.fontSize(8.5).fillColor('#444444').font('Helvetica-Oblique')
+        .text('Ce bordereau atteste que les espèces ci-dessus ont été physiquement remises à la caisse de la coopérative et intégrées à sa trésorerie.', 40, y, { width: doc.page.width - 80 });
+      doc.font('Helvetica');
+      y = doc.y + 26;
 
-      doc.moveDown(2);
-      doc.fontSize(9).text('Signature du Caissier : ______________________', 40, doc.y);
-      doc.moveDown(0.8);
-      doc.text('Signature du valideur (hiérarchie) : ______________________', 40, doc.y);
+      doc.fontSize(9).fillColor('#111111').text('Signature du Caissier : ______________________', 40, y);
+      y += 22;
+      doc.text('Signature du valideur (hiérarchie) : ______________________', 40, y);
 
-      doc.moveDown(2).fontSize(8).fillColor('#666666')
-        .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.y, { width: doc.page.width - 80, align: 'center' });
+      doc.fontSize(7.5).fillColor('#999999').font('Helvetica-Oblique')
+        .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: doc.page.width - 80, align: 'center' });
+      doc.font('Helvetica');
     },
   );
 }
@@ -251,43 +260,51 @@ function employeeFiche(user, documents = [], settings = {}, docNumber = null) {
   return renderPdf(
     () => new PDFDocument({ size: 'A4', margin: 40 }),
     async (doc) => {
-      const headerH = await drawLetterhead(doc, settings, { title: 'Fiche employé', docNumber, height: 110 });
+      let y = await drawClassicHeader(doc, settings, { docType: 'Fiche employé', docNumber, date: new Date().toLocaleDateString('fr-FR') });
 
       const fullName = [user.lastName, user.postName, user.firstName].filter(Boolean).join(' ') || user.name || '';
       const initials = fullName.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || '?';
-      await drawAvatar(doc, 76, headerH + 10, 34, { photoUrl: user.photo, initials });
+      await drawPhotoBox(doc, 40, y, 56, { photoUrl: user.photo, initials });
+      doc.fillColor('#111111').fontSize(13).font('Helvetica-Bold').text(fullName || '—', 108, y + 6, { width: 380 });
+      doc.font('Helvetica').fillColor('#666666').fontSize(9.5).text(ROLE_LABELS[user.role] || user.role, 108, y + 24);
+      y += 74;
 
-      doc.fillColor(NAVY).fontSize(16).text(fullName || '—', 128, headerH - 4, { width: 380 });
-      doc.fillColor('#626C93').fontSize(10).text(ROLE_LABELS[user.role] || user.role, 128, headerH + 16);
-
-      let y = headerH + 60;
       y = drawSectionTitle(doc, 40, y, 'Identité');
-      y = drawInfoGrid(doc, 40, y, doc.page.width - 80, [
+      y = drawKeyValueTable(doc, 40, y, doc.page.width - 80, [
+        ['Nom complet', fullName], ['Rôle', ROLE_LABELS[user.role] || user.role],
         ['E-mail', user.email], ['Téléphone', user.phone || '-'],
         ['Origine', user.origin || '-'], ['État civil', MARITAL_LABELS[user.maritalStatus] || '-'],
         ['Adresse', user.address || '-'], ['Études faites', user.education || '-'],
         ['Commune / Ville', [user.commune, user.ville].filter(Boolean).join(' / ') || '-'], ['Statut', user.status === 'inactive' ? 'Inactif' : 'Actif'],
-      ], { cols: 2 });
+      ]);
 
-      y += 14;
+      y += 18;
       y = drawSectionTitle(doc, 40, y, 'Documents déposés au dossier');
       if (documents.length === 0) {
-        doc.roundedRect(40, y, doc.page.width - 80, 34, 7).fillAndStroke('#F6F8FD', '#EBEFF8');
-        doc.fillColor('#9AA3C4').fontSize(9.5).text('Aucun document déposé.', 54, y + 12);
-        y += 34;
+        doc.rect(40, y, doc.page.width - 80, 26).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+        doc.fillColor('#999999').fontSize(8.5).font('Helvetica-Oblique').text('Aucun document déposé.', 40, y + 9, { width: doc.page.width - 80, align: 'center' });
+        doc.font('Helvetica');
       } else {
+        const colX = [40, 220, doc.page.width - 130];
+        doc.rect(40, y, doc.page.width - 80, 20).fillColor('#F3F4F8').fill();
+        doc.rect(40, y, doc.page.width - 80, 20).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+        doc.fillColor('#666666').fontSize(8).font('Helvetica-Bold');
+        doc.text('TYPE', colX[0] + 8, y + 6); doc.text('FICHIER', colX[1] + 8, y + 6); doc.text('DÉPOSÉ LE', colX[2] + 8, y + 6, { width: 82, align: 'right' });
+        doc.font('Helvetica');
+        y += 20;
         documents.forEach((d) => {
-          const rowH = 30;
-          doc.roundedRect(40, y, doc.page.width - 80, rowH, 6).fillAndStroke('#F6F8FD', '#EBEFF8');
-          doc.fillColor(NAVY).fontSize(9.5).text(d.docType, 54, y + 6, { width: 160, continued: false });
-          doc.fillColor('#3A4160').fontSize(9).text(d.fileName, 220, y + 6, { width: 220 });
-          doc.fillColor('#8891B0').fontSize(8).text(new Date(d.createdAt).toLocaleDateString('fr-FR'), doc.page.width - 130, y + 7, { width: 90, align: 'right' });
-          y += rowH + 6;
+          const rowH = 20;
+          doc.rect(40, y, doc.page.width - 80, rowH).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+          doc.fillColor('#111111').fontSize(8.5).text(d.docType, colX[0] + 8, y + 6, { width: 165 });
+          doc.text(d.fileName, colX[1] + 8, y + 6, { width: colX[2] - colX[1] - 16 });
+          doc.fillColor('#666666').text(new Date(d.createdAt).toLocaleDateString('fr-FR'), colX[2] + 8, y + 6, { width: 82, align: 'right' });
+          y += rowH;
         });
       }
 
-      doc.fontSize(8).fillColor('#9AA3C4')
+      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
         .text(`Fiche générée le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: doc.page.width - 80, align: 'center' });
+      doc.font('Helvetica');
     },
   );
 }
@@ -297,19 +314,18 @@ function dailyCashReport({ date, deposits, withdrawals, supplies, remittances, o
   return renderPdf(
     () => new PDFDocument({ size: 'A4', margin: 40 }),
     async (doc) => {
-      const headerH = await drawLetterhead(doc, settings, { title: `État journalier — ${date}`, docNumber });
-      doc.y = headerH + 22; doc.x = 40;
-      doc.fillColor('#000000').fontSize(11);
-      doc.fillColor(NAVY).text('Solde d\'ouverture : ', 40, doc.y, { continued: true }).fillColor('#000').text(`${openingBalance} CDF`);
-      doc.fillColor(NAVY).text('Solde de clôture : ', 40, doc.y, { continued: true }).fillColor('#000').text(`${closingBalance} CDF`);
-      doc.moveDown(1);
+      let y = await drawClassicHeader(doc, settings, { docType: 'État journalier de caisse', docNumber, date });
+      y = drawKeyValueTable(doc, 40, y, doc.page.width - 80, [
+        ["Solde d'ouverture", `${openingBalance} CDF`], ['Solde de clôture', `${closingBalance} CDF`],
+      ]);
+      y += 16;
 
       function section(title, rows, cols) {
-        doc.fillColor(NAVY).fontSize(12).text(title, 40, doc.y);
-        doc.moveDown(0.3).fontSize(9.5).fillColor('#000');
-        if (rows.length === 0) { doc.fillColor('#9AA3C4').text('Aucune opération.', 40, doc.y); doc.moveDown(1); return; }
-        rows.forEach((r) => doc.fillColor('#000').text(cols(r), 40, doc.y, { width: doc.page.width - 80 }));
-        doc.moveDown(1);
+        y = drawSectionTitle(doc, 40, y, title);
+        doc.fontSize(8.5).fillColor('#111111');
+        if (rows.length === 0) { doc.fillColor('#999999').font('Helvetica-Oblique').text('Aucune opération.', 40, y); doc.font('Helvetica'); y = doc.y + 12; return; }
+        rows.forEach((r) => { doc.fillColor('#111111').text(cols(r), 40, y, { width: doc.page.width - 80 }); y = doc.y + 2; });
+        y += 10;
       }
 
       section('Dépôts', deposits, (r) => `${new Date(r.createdAt).toLocaleTimeString('fr-FR')} — ${r.reference} — ${r.amount} ${r.currency} — ${r.memberName || ''}`);
@@ -317,8 +333,9 @@ function dailyCashReport({ date, deposits, withdrawals, supplies, remittances, o
       section('Approvisionnements', supplies, (r) => `${new Date(r.validatedAt || r.createdAt).toLocaleTimeString('fr-FR')} — ${r.reference} — ${r.amount} ${r.currency}`);
       section('Remises en banque', remittances, (r) => `${new Date(r.createdAt).toLocaleTimeString('fr-FR')} — ${r.reference} — ${r.amount} ${r.currency}`);
 
-      doc.moveDown(2).fontSize(9).fillColor('#666666')
-        .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.y, { width: doc.page.width - 80, align: 'center' });
+      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
+        .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: doc.page.width - 80, align: 'center' });
+      doc.font('Helvetica');
     },
   );
 }
@@ -328,30 +345,31 @@ function auditLogsPdf(logs, settings = {}, docNumber = null) {
   return renderPdf(
     () => new PDFDocument({ size: 'A4', margin: 36, layout: 'landscape' }),
     async (doc) => {
-      const headerH = await drawLetterhead(doc, settings, { title: "Pistes d'audit", docNumber, height: 72 });
-      let y = headerH + 14;
+      let y = await drawClassicHeader(doc, settings, { docType: "Pistes d'audit", docNumber, date: new Date().toLocaleDateString('fr-FR') });
       const cols = [
         { label: 'Date', w: 110 }, { label: 'Auteur', w: 150 }, { label: 'Rôle', w: 110 },
         { label: 'Module', w: 110 }, { label: 'Action', w: 160 }, { label: 'Statut', w: 90 },
       ];
-      let x = 36;
-      doc.fontSize(8).fillColor(NAVY);
-      cols.forEach((c) => { doc.text(c.label, x, y, { width: c.w }); x += c.w; });
-      y += 16;
-      doc.moveTo(36, y).lineTo(doc.page.width - 36, y).strokeColor('#D8E0F3').stroke();
-      y += 6;
+      let x = 40;
+      doc.rect(40, y, doc.page.width - 80, 20).fillColor('#F3F4F8').fill();
+      doc.rect(40, y, doc.page.width - 80, 20).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+      doc.fontSize(7.5).fillColor('#555555').font('Helvetica-Bold');
+      cols.forEach((c) => { doc.text(c.label.toUpperCase(), x + 6, y + 6, { width: c.w - 6 }); x += c.w; });
+      doc.font('Helvetica');
+      y += 20;
 
-      doc.fontSize(7.5).fillColor('#000000');
+      doc.fontSize(7.5).fillColor('#111111');
       logs.forEach((l) => {
         if (y > doc.page.height - 40) { doc.addPage({ layout: 'landscape' }); y = 40; }
-        x = 36;
+        x = 40;
+        doc.rect(40, y, doc.page.width - 80, 15).lineWidth(0.4).strokeColor('#DDDDDD').stroke();
         const row = [
           new Date(l.timestamp).toLocaleString('fr-FR'),
           l.user?.name || (l.member ? `${l.member.firstName} ${l.member.lastName}` : 'Système'),
           l.user?.role || '-', l.module, l.action, l.status,
         ];
-        row.forEach((val, i) => { doc.text(String(val), x, y, { width: cols[i].w }); x += cols[i].w; });
-        y += 14;
+        row.forEach((val, i) => { doc.text(String(val), x + 6, y + 4, { width: cols[i].w - 6 }); x += cols[i].w; });
+        y += 15;
       });
     },
   );
@@ -362,36 +380,40 @@ function bankStatement({ periodLabel, rows, closingBalance }, settings = {}, doc
   return renderPdf(
     () => new PDFDocument({ size: 'A4', margin: 40 }),
     async (doc) => {
-      const headerH = await drawLetterhead(doc, settings, { title: 'Relevé bancaire', docNumber });
-      doc.y = headerH + 18; doc.x = 40;
-      doc.fillColor(NAVY).fontSize(10).text(`Période : ${periodLabel || 'toutes opérations'}`, 40, doc.y);
-      doc.moveDown(1);
+      let y = await drawClassicHeader(doc, settings, { docType: 'Relevé bancaire', docNumber, date: new Date().toLocaleDateString('fr-FR') });
+      doc.fillColor('#666666').fontSize(9).font('Helvetica-Oblique').text(`Période : ${periodLabel || 'toutes opérations'}`, 40, y);
+      doc.font('Helvetica');
+      y += 20;
 
       const colX = [40, 130, 220, 400, 460, 520];
       const headers = ['Date', 'Référence', 'Libellé', 'Débit', 'Crédit', 'Solde'];
-      doc.fontSize(8.5).fillColor(NAVY);
-      headers.forEach((h, i) => doc.text(h, colX[i], doc.y, { width: (colX[i + 1] || 580) - colX[i] - 6 }));
-      let y = doc.y + 14;
-      doc.moveTo(40, y).lineTo(555, y).strokeColor('#D8E0F3').stroke();
-      y += 6;
+      doc.rect(40, y, 515, 18).fillColor('#F3F4F8').fill();
+      doc.rect(40, y, 515, 18).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+      doc.fontSize(7.5).fillColor('#555555').font('Helvetica-Bold');
+      headers.forEach((h, i) => doc.text(h.toUpperCase(), colX[i] + 6, y + 5, { width: (colX[i + 1] || 580) - colX[i] - 10 }));
+      doc.font('Helvetica');
+      y += 18;
 
-      doc.fontSize(8).fillColor('#000000');
+      doc.fontSize(8).fillColor('#111111');
       rows.forEach((r) => {
         if (y > doc.page.height - 60) { doc.addPage(); y = 40; }
+        doc.rect(40, y, 515, 15).lineWidth(0.4).strokeColor('#DDDDDD').stroke();
         const line = [
           new Date(r.date).toLocaleDateString('fr-FR'), r.reference, r.narrative || r.label || '',
           r.debit ? String(r.debit) : '', r.credit ? String(r.credit) : '', String(r.balance),
         ];
-        line.forEach((v, i) => doc.text(v, colX[i], y, { width: (colX[i + 1] || 580) - colX[i] - 6 }));
-        y += 14;
+        line.forEach((v, i) => doc.text(v, colX[i] + 6, y + 4, { width: (colX[i + 1] || 580) - colX[i] - 10 }));
+        y += 15;
       });
 
-      y += 10;
-      doc.rect(40, y, 515, 24).fill(NAVY);
-      doc.fillColor('#ffffff').fontSize(10).text(`Solde de clôture : ${closingBalance}`, 50, y + 6);
+      y += 8;
+      doc.rect(40, y, 515, 24).lineWidth(1).strokeColor(NAVY).stroke();
+      doc.fillColor(NAVY).fontSize(9.5).font('Helvetica-Bold').text(`Solde de clôture : ${closingBalance}`, 50, y + 7);
+      doc.font('Helvetica');
 
-      doc.fontSize(8).fillColor('#666666')
+      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
         .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: 515, align: 'center' });
+      doc.font('Helvetica');
     },
   );
 }
@@ -405,29 +427,31 @@ function shareCapitalCertificate(share, member, settings = {}, docNumber = null)
     () => new PDFDocument({ size: 'A5', margin: 40 }),
     async (doc) => {
       const isSub = share.type === 'subscription';
-      const headerH = await drawLetterhead(doc, settings, { title: isSub ? 'Attestation de souscription' : 'Attestation de remboursement', docNumber, height: 78 });
-      doc.y = headerH + 20; doc.x = 40;
-      doc.fillColor(NAVY).fontSize(11.5).text(isSub ? 'ATTESTATION DE SOUSCRIPTION DE PARTS SOCIALES' : 'ATTESTATION DE REMBOURSEMENT DE PARTS SOCIALES', 40, doc.y, { width: doc.page.width - 80 });
-      doc.moveDown(1.2).fontSize(10).fillColor('#000000');
+      let y = await drawClassicHeader(doc, settings, { docType: isSub ? 'Attestation de souscription' : 'Attestation de remboursement', docNumber, date: new Date().toLocaleDateString('fr-FR') });
+      doc.fillColor(NAVY).fontSize(10.5).font('Helvetica-Bold').text(isSub ? 'ATTESTATION DE SOUSCRIPTION DE PARTS SOCIALES' : 'ATTESTATION DE REMBOURSEMENT DE PARTS SOCIALES', 40, y, { width: doc.page.width - 80 });
+      doc.font('Helvetica');
+      y = doc.y + 16;
 
-      doc.text(
+      doc.fillColor('#111111').fontSize(9.5).text(
         `${settings.coopName || 'COOPEC-DC'} atteste que ${member ? `${member.firstName} ${member.lastName}` : 'le sociétaire'} ` +
         `(N° membre ${member?.memberNumber || '-'}) a ${isSub ? 'souscrit' : 'obtenu le remboursement de'} ${share.numberOfParts} part(s) sociale(s), ` +
         `à la valeur nominale de ${share.unitValue} CDF chacune, soit un montant de ${share.amount} CDF, en date du ${new Date(share.createdAt || Date.now()).toLocaleDateString('fr-FR')}.`,
-        40, doc.y, { width: doc.page.width - 80, align: 'justify' },
+        40, y, { width: doc.page.width - 80, align: 'justify' },
       );
+      y = doc.y + 20;
 
-      doc.moveDown(2).fontSize(9.5);
-      doc.fillColor(NAVY).text('Référence : ', 40, doc.y, { continued: true }).fillColor('#000').text(share.reference);
-      doc.fillColor(NAVY).text('Mode de paiement : ', 40, doc.y, { continued: true }).fillColor('#000').text(share.paymentMethod === 'cash' ? 'Espèces' : 'Mobile Money');
+      y = drawKeyValueTable(doc, 40, y, doc.page.width - 80, [
+        ['Référence', share.reference], ['Mode de paiement', share.paymentMethod === 'cash' ? 'Espèces' : 'Mobile Money'],
+      ]);
 
-      doc.moveDown(3);
-      doc.fontSize(9).text('Signature autorisée : ______________________', 40, doc.y);
-      doc.moveDown(0.6);
-      doc.text('Cachet de la coopérative :', 40, doc.y);
+      y += 40;
+      doc.fontSize(9).fillColor('#111111').text('Signature autorisée : ______________________', 40, y);
+      y += 22;
+      doc.text('Cachet de la coopérative :', 40, y);
 
-      doc.fontSize(8).fillColor('#666666')
+      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
         .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: doc.page.width - 80, align: 'center' });
+      doc.font('Helvetica');
     },
   );
 }
@@ -437,10 +461,7 @@ function creditContract(credit, member, schedule, settings = {}, docNumber = nul
   return renderPdf(
     () => new PDFDocument({ size: 'A4', margin: 40 }),
     async (doc) => {
-      const headerH = await drawLetterhead(doc, settings, { title: 'Contrat de crédit', docNumber });
-      doc.y = headerH + 20; doc.x = 40;
-      doc.fillColor(NAVY).fontSize(12).text('CONTRAT DE CRÉDIT', 40, doc.y);
-      doc.moveDown(1).fontSize(10).fillColor('#000000');
+      let y = await drawClassicHeader(doc, settings, { docType: 'Contrat de crédit', docNumber, date: new Date().toLocaleDateString('fr-FR') });
 
       const rows = [
         ['Membre', member ? `${member.firstName} ${member.lastName} (${member.memberNumber || '-'})` : '-'],
@@ -451,42 +472,46 @@ function creditContract(credit, member, schedule, settings = {}, docNumber = nul
         ['Date de décaissement', new Date(credit.disbursementDate || Date.now()).toLocaleDateString('fr-FR')],
         ["Date d'échéance finale", credit.maturityDate ? new Date(credit.maturityDate).toLocaleDateString('fr-FR') : '-'],
       ];
-      rows.forEach(([k, v]) => {
-        doc.fillColor(NAVY).text(`${k} : `, 40, doc.y, { continued: true, width: doc.page.width - 80 }).fillColor('#000000').text(String(v));
-      });
+      y = drawKeyValueTable(doc, 40, y, doc.page.width - 80, rows);
 
-      doc.moveDown(1.5).fontSize(9.5).fillColor('#3A4160').text(
+      y += 14;
+      doc.fontSize(8.5).fillColor('#444444').font('Helvetica-Oblique').text(
         "Le membre s'engage à rembourser le présent crédit selon l'échéancier ci-dessous, aux dates prévues. Tout retard peut entraîner des pénalités selon la politique en vigueur de la coopérative.",
-        40, doc.y, { width: doc.page.width - 80, align: 'justify' },
+        40, y, { width: doc.page.width - 80, align: 'justify' },
       );
+      doc.font('Helvetica');
+      y = doc.y + 18;
 
-      doc.moveDown(1.5).fillColor(NAVY).fontSize(11).text('Échéancier de remboursement', 40, doc.y);
-      doc.moveDown(0.4);
+      y = drawSectionTitle(doc, 40, y, 'Échéancier de remboursement');
       const colX = [40, 90, 190, 280, 370, 460];
       const headers = ['N°', 'Échéance', 'Principal', 'Intérêt', 'Total', 'Solde restant'];
-      doc.fontSize(8.5).fillColor(NAVY);
-      headers.forEach((h, i) => doc.text(h, colX[i], doc.y, { width: (colX[i + 1] || 555) - colX[i] - 6 }));
-      let y = doc.y + 14;
-      doc.moveTo(40, y).lineTo(555, y).strokeColor('#D8E0F3').stroke();
-      y += 6;
-      doc.fontSize(8).fillColor('#000000');
+      doc.rect(40, y, 515, 18).fillColor('#F3F4F8').fill();
+      doc.rect(40, y, 515, 18).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+      doc.fontSize(7.5).fillColor('#555555').font('Helvetica-Bold');
+      headers.forEach((h, i) => doc.text(h.toUpperCase(), colX[i] + 6, y + 5, { width: (colX[i + 1] || 555) - colX[i] - 10 }));
+      doc.font('Helvetica');
+      y += 18;
+
+      doc.fontSize(8).fillColor('#111111');
       schedule.forEach((r) => {
         if (y > doc.page.height - 60) { doc.addPage(); y = 40; }
+        doc.rect(40, y, 515, 15).lineWidth(0.4).strokeColor('#DDDDDD').stroke();
         const line = [
           String(r.installmentNumber), new Date(r.expectedDate).toLocaleDateString('fr-FR'),
           String(r.principalAmount), String(r.interestAmount), String(r.expectedAmount), String(r.remainingAmount ?? ''),
         ];
-        line.forEach((v, i) => doc.text(v, colX[i], y, { width: (colX[i + 1] || 555) - colX[i] - 6 }));
-        y += 14;
+        line.forEach((v, i) => doc.text(v, colX[i] + 6, y + 4, { width: (colX[i + 1] || 555) - colX[i] - 10 }));
+        y += 15;
       });
 
-      y += 20;
+      y += 26;
       if (y > doc.page.height - 80) { doc.addPage(); y = 40; }
-      doc.fontSize(9).fillColor('#000').text('Signature du membre : ______________________', 40, y);
+      doc.fontSize(9).fillColor('#111111').text('Signature du membre : ______________________', 40, y);
       doc.text('Signature — Responsable Crédit : ______________________', 300, y);
 
-      doc.fontSize(8).fillColor('#666666')
+      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
         .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: 515, align: 'center' });
+      doc.font('Helvetica');
     },
   );
 }
@@ -499,44 +524,48 @@ function accountingStatementPdf(type, data, settings = {}, docNumber = null) {
     () => new PDFDocument({ size: 'A4', margin: 40 }),
     async (doc) => {
       const title = ACC_TITLES[type] || 'État comptable';
-      const headerH = await drawLetterhead(doc, settings, { title, docNumber });
-      doc.y = headerH + 18; doc.x = 40;
+      let y = await drawClassicHeader(doc, settings, { docType: title, docNumber, date: new Date().toLocaleDateString('fr-FR') });
 
       function table(rows, cols) {
         const colX = cols.map((c) => c.x);
-        doc.fontSize(8.5).fillColor(NAVY);
-        cols.forEach((c, i) => doc.text(c.label, colX[i], doc.y, { width: c.w, align: c.align || 'left' }));
-        let y = doc.y + 14;
-        doc.moveTo(40, y).lineTo(555, y).strokeColor('#D8E0F3').stroke();
-        y += 6;
-        doc.fontSize(8.5).fillColor('#000000');
+        doc.rect(40, y, 515, 18).fillColor('#F3F4F8').fill();
+        doc.rect(40, y, 515, 18).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+        doc.fontSize(7.5).fillColor('#555555').font('Helvetica-Bold');
+        cols.forEach((c, i) => doc.text(c.label.toUpperCase(), colX[i] + 6, y + 5, { width: c.w - 6, align: c.align || 'left' }));
+        doc.font('Helvetica');
+        y += 18;
+        doc.fontSize(8.5).fillColor('#111111');
         rows.forEach((r) => {
           if (y > doc.page.height - 50) { doc.addPage(); y = 40; }
-          cols.forEach((c, i) => doc.text(String(r[c.key] ?? ''), colX[i], y, { width: c.w, align: c.align || 'left' }));
-          y += 14;
+          doc.rect(40, y, 515, 15).lineWidth(0.4).strokeColor('#DDDDDD').stroke();
+          cols.forEach((c, i) => doc.text(String(r[c.key] ?? ''), colX[i] + 6, y + 4, { width: c.w - 6, align: c.align || 'left' }));
+          y += 15;
         });
-        doc.y = y + 10;
+        y += 12;
       }
 
       if (type === 'balanceSheet') {
-        doc.fillColor(NAVY).fontSize(11).text('Actif', 40, doc.y); doc.moveDown(0.3);
+        y = drawSectionTitle(doc, 40, y, 'Actif');
         table(data.actif, [{ key: 'code', label: 'Compte', x: 40, w: 60 }, { key: 'label', label: 'Libellé', x: 100, w: 300 }, { key: 'balance', label: 'Solde', x: 460, w: 95, align: 'right' }]);
-        doc.fillColor(NAVY).fontSize(11).text('Passif', 40, doc.y); doc.moveDown(0.3);
+        y = drawSectionTitle(doc, 40, y, 'Passif');
         table(data.passif, [{ key: 'code', label: 'Compte', x: 40, w: 60 }, { key: 'label', label: 'Libellé', x: 100, w: 300 }, { key: 'balance', label: 'Solde', x: 460, w: 95, align: 'right' }]);
-        doc.rect(40, doc.y, 515, 46).fill(NAVY);
-        doc.fillColor('#ffffff').fontSize(9.5)
-          .text(`Total Actif : ${data.totalActif}     Total Passif : ${data.totalPassif}`, 50, doc.y + 8)
-          .text(`Résultat de l'exercice : ${data.resultatExercice}     ${data.equilibre ? 'Équilibré' : 'Déséquilibre'}`, 50, doc.y + 6);
+        doc.rect(40, y, 515, 40).lineWidth(1).strokeColor(NAVY).stroke();
+        doc.fillColor(NAVY).fontSize(9).font('Helvetica-Bold')
+          .text(`Total Actif : ${data.totalActif}     Total Passif : ${data.totalPassif}`, 50, y + 8)
+          .text(`Résultat de l'exercice : ${data.resultatExercice}     ${data.equilibre ? 'Équilibré' : 'Déséquilibre'}`, 50, y + 22);
+        doc.font('Helvetica');
       } else if (type === 'incomeStatement') {
         table(data.data, [{ key: 'code', label: 'Compte', x: 40, w: 60 }, { key: 'label', label: 'Libellé', x: 100, w: 260 }, { key: 'nature', label: 'Nature', x: 360, w: 90 }, { key: 'amount', label: 'Montant', x: 460, w: 95, align: 'right' }]);
-        doc.rect(40, doc.y, 515, 30).fill(NAVY);
-        doc.fillColor('#ffffff').fontSize(9.5).text(`Total charges : ${data.totalCharges}     Total produits : ${data.totalProduits}     Résultat : ${data.resultat}`, 50, doc.y + 9);
+        doc.rect(40, y, 515, 24).lineWidth(1).strokeColor(NAVY).stroke();
+        doc.fillColor(NAVY).fontSize(9).font('Helvetica-Bold').text(`Total charges : ${data.totalCharges}     Total produits : ${data.totalProduits}     Résultat : ${data.resultat}`, 50, y + 7);
+        doc.font('Helvetica');
       } else {
         table(data.data || data.accounts || [], [{ key: 'code', label: 'Compte', x: 40, w: 60 }, { key: 'label', label: 'Libellé', x: 100, w: 260 }, { key: 'debit', label: 'Débit', x: 360, w: 90, align: 'right' }, { key: 'credit', label: 'Crédit', x: 460, w: 95, align: 'right' }]);
       }
 
-      doc.fontSize(8).fillColor('#666666')
+      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
         .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: 515, align: 'center' });
+      doc.font('Helvetica');
     },
   );
 }
@@ -544,5 +573,5 @@ function accountingStatementPdf(type, data, settings = {}, docNumber = null) {
 module.exports = {
   transactionReceipt, cashDepositDualReceipt, depositVoucher, employeeFiche, dailyCashReport, auditLogsPdf,
   bankStatement, shareCapitalCertificate, creditContract, accountingStatementPdf,
-  drawLetterhead, fetchImageBuffer, NAVY, ACCENT, MINT,
+  drawClassicHeader, fetchImageBuffer, NAVY, ACCENT, MINT,
 };
