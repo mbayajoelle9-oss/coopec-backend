@@ -75,6 +75,50 @@ async function drawLetterhead(doc, settings, { title, docNumber, height = 90 } =
   return height;
 }
 
+/** Liseré + titre de section, dans le style des autres documents COOPEC-DC. Retourne le y suivant. */
+function drawSectionTitle(doc, x, y, text) {
+  doc.rect(x, y, 4, 15).fill(ACCENT);
+  doc.fillColor(NAVY).fontSize(12).text(text, x + 12, y - 1);
+  return y + 26;
+}
+
+/**
+ * Grille de mini-cartes « étiquette / valeur » — remplace les lignes plates "Label : valeur"
+ * par une mise en page en cartes, dans le même style que les autres documents COOPEC-DC.
+ * Retourne le y juste après la grille.
+ */
+function drawInfoGrid(doc, x, y, width, items, { cols = 2, cardH = 40, gap = 10 } = {}) {
+  const cardW = (width - gap * (cols - 1)) / cols;
+  let cx = x; let cy = y; let col = 0;
+  items.forEach(([label, value]) => {
+    doc.roundedRect(cx, cy, cardW, cardH, 7).fillAndStroke('#F6F8FD', '#EBEFF8');
+    doc.fillColor('#8891B0').fontSize(7.5).text(label.toUpperCase(), cx + 11, cy + 8, { width: cardW - 22 });
+    doc.fillColor(NAVY).fontSize(10.5).text(String(value ?? '-'), cx + 11, cy + 20, { width: cardW - 22 });
+    col += 1;
+    if (col >= cols) { col = 0; cx = x; cy += cardH + gap; } else { cx += cardW + gap; }
+  });
+  const rows = Math.ceil(items.length / cols);
+  return y + rows * (cardH + gap);
+}
+
+/** Cercle avatar : photo si disponible, sinon initiales sur fond dégradé façon marque. */
+async function drawAvatar(doc, cx, cy, r, { photoUrl, initials } = {}) {
+  const buf = await fetchImageBuffer(photoUrl);
+  if (buf) {
+    try {
+      doc.save();
+      doc.circle(cx, cy, r).clip();
+      doc.image(buf, cx - r, cy - r, { width: r * 2, height: r * 2 });
+      doc.restore();
+      return;
+    } catch (e) { /* image illisible -> repli sur les initiales */ }
+  }
+  doc.save();
+  doc.circle(cx, cy, r).fill(ACCENT);
+  doc.fillColor('#ffffff').fontSize(r * 0.8).text(initials || '?', cx - r, cy - r * 0.55, { width: r * 2, align: 'center' });
+  doc.restore();
+}
+
 const STATUS_LABELS = { pending: 'EN ATTENTE DE CONFIRMATION', completed: 'CONFIRMÉ', failed: 'ÉCHOUÉ', cancelled: 'ANNULÉ' };
 const STATUS_COLORS = { pending: '#F2A93B', completed: MINT, failed: '#F1503D', cancelled: '#9AA3C4' };
 
@@ -192,38 +236,58 @@ function depositVoucher(trx, member, { agentName, validatedByName } = {}, settin
 }
 
 const MARITAL_LABELS = { celibataire: 'Célibataire', marie: 'Marié(e)', divorce: 'Divorcé(e)', veuf: 'Veuf/Veuve' };
+const ROLE_LABELS = {
+  super_admin: 'Super administrateur', director: 'Directeur / Gérante',
+  credit_manager: 'Responsable crédit', credit_manager_deputy: 'Responsable crédit adjoint',
+  credit_controller: 'Contrôleur de crédit', cashier: 'Caissier', chief_cashier: 'Chef de caisse',
+  internal_controller: 'Contrôleur interne', accountant: 'Comptable', chief_accountant: 'Chef comptable',
+  chief_accountant_deputy: 'Chef comptable adjoint', agent: 'Agent',
+  board_president: "Président du Conseil d'Administration", board_vice_president: 'Vice-Président du CA',
+  board_member: "Membre du Conseil d'Administration", committee_member: 'Membre du comité', viewer: 'Observateur',
+};
 
 /** Fiche employé imprimable — identité complète et liste des documents déposés au dossier. */
 function employeeFiche(user, documents = [], settings = {}, docNumber = null) {
   return renderPdf(
     () => new PDFDocument({ size: 'A4', margin: 40 }),
     async (doc) => {
-      const headerH = await drawLetterhead(doc, settings, { title: 'Fiche employé', docNumber });
-      doc.y = headerH + 22; doc.x = 40;
-      doc.fillColor('#000000').fontSize(11);
-      const fullName = [user.lastName, user.postName, user.firstName].filter(Boolean).join(' ') || user.name;
-      const rows = [
-        ['Nom complet', fullName], ['Rôle', user.role], ['E-mail', user.email], ['Téléphone', user.phone || '-'],
+      const headerH = await drawLetterhead(doc, settings, { title: 'Fiche employé', docNumber, height: 110 });
+
+      const fullName = [user.lastName, user.postName, user.firstName].filter(Boolean).join(' ') || user.name || '';
+      const initials = fullName.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || '?';
+      await drawAvatar(doc, 76, headerH + 10, 34, { photoUrl: user.photo, initials });
+
+      doc.fillColor(NAVY).fontSize(16).text(fullName || '—', 128, headerH - 4, { width: 380 });
+      doc.fillColor('#626C93').fontSize(10).text(ROLE_LABELS[user.role] || user.role, 128, headerH + 16);
+
+      let y = headerH + 60;
+      y = drawSectionTitle(doc, 40, y, 'Identité');
+      y = drawInfoGrid(doc, 40, y, doc.page.width - 80, [
+        ['E-mail', user.email], ['Téléphone', user.phone || '-'],
         ['Origine', user.origin || '-'], ['État civil', MARITAL_LABELS[user.maritalStatus] || '-'],
         ['Adresse', user.address || '-'], ['Études faites', user.education || '-'],
-        ['Commune / Ville', [user.commune, user.ville].filter(Boolean).join(' / ') || '-'], ['Statut', user.status || '-'],
-      ];
-      rows.forEach(([k, v]) => {
-        doc.fillColor(NAVY).text(`${k} : `, 40, doc.y, { continued: true, width: doc.page.width - 80 }).fillColor('#000000').text(String(v));
-      });
+        ['Commune / Ville', [user.commune, user.ville].filter(Boolean).join(' / ') || '-'], ['Statut', user.status === 'inactive' ? 'Inactif' : 'Actif'],
+      ], { cols: 2 });
 
-      doc.moveDown(1.5).fillColor(NAVY).fontSize(12).text('Documents déposés au dossier', 40, doc.y);
-      doc.moveDown(0.3).fontSize(10).fillColor('#000000');
+      y += 14;
+      y = drawSectionTitle(doc, 40, y, 'Documents déposés au dossier');
       if (documents.length === 0) {
-        doc.fillColor('#9AA3C4').text('Aucun document déposé.', 40, doc.y);
+        doc.roundedRect(40, y, doc.page.width - 80, 34, 7).fillAndStroke('#F6F8FD', '#EBEFF8');
+        doc.fillColor('#9AA3C4').fontSize(9.5).text('Aucun document déposé.', 54, y + 12);
+        y += 34;
       } else {
         documents.forEach((d) => {
-          doc.fillColor('#000000').text(`• ${d.docType} — ${d.fileName} (déposé le ${new Date(d.createdAt).toLocaleDateString('fr-FR')})`, 40, doc.y, { width: doc.page.width - 80 });
+          const rowH = 30;
+          doc.roundedRect(40, y, doc.page.width - 80, rowH, 6).fillAndStroke('#F6F8FD', '#EBEFF8');
+          doc.fillColor(NAVY).fontSize(9.5).text(d.docType, 54, y + 6, { width: 160, continued: false });
+          doc.fillColor('#3A4160').fontSize(9).text(d.fileName, 220, y + 6, { width: 220 });
+          doc.fillColor('#8891B0').fontSize(8).text(new Date(d.createdAt).toLocaleDateString('fr-FR'), doc.page.width - 130, y + 7, { width: 90, align: 'right' });
+          y += rowH + 6;
         });
       }
 
-      doc.moveDown(3).fontSize(9).fillColor('#666666')
-        .text(`Fiche générée le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.y, { width: doc.page.width - 80, align: 'center' });
+      doc.fontSize(8).fillColor('#9AA3C4')
+        .text(`Fiche générée le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: doc.page.width - 80, align: 'center' });
     },
   );
 }
