@@ -9,12 +9,19 @@ const ACCENT = '#2450E8';
 const MINT = '#14B87F';
 
 /** Télécharge une image (logo) en mémoire — échoue silencieusement (retourne null) si indisponible. */
-function fetchImageBuffer(url) {
+function fetchImageBuffer(url, redirectsLeft = 4) {
   return new Promise((resolve) => {
     if (!url) return resolve(null);
     try {
       const client = url.startsWith('https') ? https : http;
       const req = client.get(url, { timeout: 4000 }, (res) => {
+        // Suit les redirections (courantes sur Render : upgrade HTTP->HTTPS, URL canonique...)
+        // au lieu d'abandonner silencieusement dessus comme avant.
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
+          res.resume();
+          const nextUrl = new URL(res.headers.location, url).toString();
+          return resolve(fetchImageBuffer(nextUrl, redirectsLeft - 1));
+        }
         if (res.statusCode !== 200) { res.resume(); return resolve(null); }
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
@@ -69,15 +76,28 @@ async function drawClassicHeader(doc, settings, { docType, docNumber, date } = {
   ].filter(Boolean);
   doc.fillColor('#666666').fontSize(8).text(coordLines.join('\n'), textX, y + 22, { width: 300, lineGap: 1.5 });
 
-  const boxW = 170; const boxX = w - margin - boxW; const boxY = margin;
-  const boxH = docNumber ? 46 : 30;
-  doc.rect(boxX, boxY, boxW, boxH).lineWidth(1.2).strokeColor(NAVY).stroke();
-  doc.fillColor(NAVY).fontSize(12).font('Helvetica-Bold').text((docType || 'DOCUMENT').toUpperCase(), boxX, boxY + 9, { width: boxW, align: 'center', characterSpacing: 0.4 });
+  // Encadré du type de document : hauteur calculée selon le texte réel (le titre peut
+  // passer sur deux lignes — "ÉTAT JOURNALIER DE CAISSE" par exemple — sans quoi le
+  // numéro et la date lui passent dessus.
+  const boxW = 170; const boxX = w - margin - boxW;
+  const titleText = (docType || 'DOCUMENT').toUpperCase();
+  doc.fontSize(12).font('Helvetica-Bold');
+  const titleH = doc.heightOfString(titleText, { width: boxW - 16, align: 'center' });
   doc.font('Helvetica');
-  if (docNumber) doc.fillColor('#555555').fontSize(8.5).text(`N° ${docNumber}`, boxX, boxY + 26, { width: boxW, align: 'center' });
-  if (date) doc.fillColor('#888888').fontSize(8).text(date, boxX, boxY + (docNumber ? 37 : 21), { width: boxW, align: 'center' });
 
-  y = margin + 64;
+  const padTop = 9;
+  let cy = padTop + titleH + 4;
+  const numH = docNumber ? 12 : 0;
+  const dateH = date ? 11 : 0;
+  const boxH = cy + numH + dateH + 8;
+
+  doc.rect(boxX, margin, boxW, boxH).lineWidth(1.2).strokeColor(NAVY).stroke();
+  doc.fillColor(NAVY).fontSize(12).font('Helvetica-Bold').text(titleText, boxX + 8, margin + padTop, { width: boxW - 16, align: 'center', characterSpacing: 0.4 });
+  doc.font('Helvetica');
+  if (docNumber) { doc.fillColor('#555555').fontSize(8.5).text(`N° ${docNumber}`, boxX, margin + cy, { width: boxW, align: 'center' }); cy += numH; }
+  if (date) doc.fillColor('#888888').fontSize(8).text(date, boxX, margin + cy, { width: boxW, align: 'center' });
+
+  y = margin + Math.max(64, boxH + 18);
   doc.moveTo(margin, y).lineTo(w - margin, y).lineWidth(1.6).strokeColor(NAVY).stroke();
   return y + 14;
 }

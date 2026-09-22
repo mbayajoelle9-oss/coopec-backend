@@ -8,6 +8,8 @@ const { audit } = require('../middleware/audit');
 const { ROLES } = require('../utils/constants');
 const c = require('../controllers/creditController');
 
+router.get('/by-application/:appId', protectUser, c.byApplication);
+
 router.post('/applications',
   protectUser, allowRoles(ROLES.AGENT, ROLES.CREDIT_MANAGER, ROLES.CREDIT_MANAGER_DEPUTY, ROLES.DIRECTOR, ROLES.CHIEF_ACCOUNTANT, ROLES.CHIEF_ACCOUNTANT_DEPUTY, ROLES.ACCOUNTANT),
   body('memberId').notEmpty(), body('amountRequested').isFloat({ gt: 0 }), body('duration').isInt({ gt: 0 }),

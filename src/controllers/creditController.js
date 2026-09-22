@@ -361,7 +361,14 @@ const printContract = asyncHandler(async (req, res) => {
   res.send(buffer);
 });
 
+/** GET /credits/by-application/:appId — retrouve le crédit décaissé résultant d'une demande. */
+const byApplication = asyncHandler(async (req, res) => {
+  const credit = await Credit.findOne({ application: req.params.appId });
+  if (!credit) throw new ApiError(404, "Aucun crédit décaissé pour cette demande.");
+  res.json({ success: true, credit });
+});
+
 module.exports = {
   createApplication, listApplications, applicationDetail, updateStatus,
-  disburse, creditDetail, memberCredits, initiateRepayment, applyRepayment, computeScore, printContract,
+  disburse, creditDetail, memberCredits, initiateRepayment, applyRepayment, computeScore, printContract, byApplication,
 };
