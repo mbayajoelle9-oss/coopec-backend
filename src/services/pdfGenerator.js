@@ -128,6 +128,33 @@ async function drawPhotoBox(doc, x, y, size, { photoUrl, initials } = {}) {
   doc.font('Helvetica');
 }
 
+/**
+ * Pied de page commun : ligne de signature manuscrite + cachet (à gauche/droite) et
+ * mention de génération. Écrit toujours sur la DERNIÈRE page produite (pas une nouvelle).
+ *
+ * Correctif important : PDFKit ajoute automatiquement une page si un texte est positionné
+ * trop près du bord bas (dans sa marge par défaut) — c'est ce qui envoyait le pied de page
+ * sur une deuxième page vide. On neutralise cette marge basse juste avant d'écrire, une
+ * fois que toute la pagination "utile" du contenu est déjà terminée.
+ */
+function drawFooter(doc, settings, { signatures = true, leftLabel = 'Signature autorisée', rightLabel = 'Cachet de la coopérative' } = {}) {
+  doc.page.margins.bottom = 0;
+  const w = doc.page.width;
+  const genY = doc.page.height - 24;
+
+  if (signatures) {
+    const sigY = doc.page.height - 58;
+    doc.moveTo(40, sigY - 10).lineTo(w - 40, sigY - 10).lineWidth(0.6).strokeColor('#DDDDDD').stroke();
+    doc.fontSize(8.5).fillColor('#333333').font('Helvetica');
+    doc.text(`${leftLabel} : ______________________`, 40, sigY, { width: (w - 80) / 2 - 10 });
+    doc.text(`${rightLabel} : ______________________`, w / 2 + 10, sigY, { width: (w - 80) / 2 - 10 });
+  }
+
+  doc.fontSize(7.5).fillColor('#999999').font('Helvetica-Oblique')
+    .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings?.coopName || 'COOPEC-DC'}.`, 40, genY, { width: w - 80, align: 'center' });
+  doc.font('Helvetica');
+}
+
 const STATUS_LABELS = { pending: 'EN ATTENTE DE CONFIRMATION', completed: 'CONFIRMÉ', failed: 'ÉCHOUÉ', cancelled: 'ANNULÉ' };
 const STATUS_COLORS = { pending: '#F2A93B', completed: MINT, failed: '#F1503D', cancelled: '#9AA3C4' };
 
@@ -231,15 +258,8 @@ function depositVoucher(trx, member, { agentName, validatedByName } = {}, settin
       doc.fontSize(8.5).fillColor('#444444').font('Helvetica-Oblique')
         .text('Ce bordereau atteste que les espèces ci-dessus ont été physiquement remises à la caisse de la coopérative et intégrées à sa trésorerie.', 40, y, { width: doc.page.width - 80 });
       doc.font('Helvetica');
-      y = doc.y + 26;
 
-      doc.fontSize(9).fillColor('#111111').text('Signature du Caissier : ______________________', 40, y);
-      y += 22;
-      doc.text('Signature du valideur (hiérarchie) : ______________________', 40, y);
-
-      doc.fontSize(7.5).fillColor('#999999').font('Helvetica-Oblique')
-        .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: doc.page.width - 80, align: 'center' });
-      doc.font('Helvetica');
+      drawFooter(doc, settings, { leftLabel: 'Signature du Caissier', rightLabel: 'Signature du valideur' });
     },
   );
 }
@@ -302,9 +322,7 @@ function employeeFiche(user, documents = [], settings = {}, docNumber = null) {
         });
       }
 
-      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
-        .text(`Fiche générée le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: doc.page.width - 80, align: 'center' });
-      doc.font('Helvetica');
+      drawFooter(doc, settings, { leftLabel: "Signature de l'employé", rightLabel: 'Cachet RH' });
     },
   );
 }
@@ -333,9 +351,7 @@ function dailyCashReport({ date, deposits, withdrawals, supplies, remittances, o
       section('Approvisionnements', supplies, (r) => `${new Date(r.validatedAt || r.createdAt).toLocaleTimeString('fr-FR')} — ${r.reference} — ${r.amount} ${r.currency}`);
       section('Remises en banque', remittances, (r) => `${new Date(r.createdAt).toLocaleTimeString('fr-FR')} — ${r.reference} — ${r.amount} ${r.currency}`);
 
-      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
-        .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: doc.page.width - 80, align: 'center' });
-      doc.font('Helvetica');
+      drawFooter(doc, settings, { leftLabel: 'Signature du Caissier', rightLabel: 'Cachet' });
     },
   );
 }
@@ -371,6 +387,8 @@ function auditLogsPdf(logs, settings = {}, docNumber = null) {
         row.forEach((val, i) => { doc.text(String(val), x + 6, y + 4, { width: cols[i].w - 6 }); x += cols[i].w; });
         y += 15;
       });
+
+      drawFooter(doc, settings, { leftLabel: 'Vérifié par', rightLabel: 'Cachet' });
     },
   );
 }
@@ -396,7 +414,7 @@ function bankStatement({ periodLabel, rows, closingBalance }, settings = {}, doc
 
       doc.fontSize(8).fillColor('#111111');
       rows.forEach((r) => {
-        if (y > doc.page.height - 60) { doc.addPage(); y = 40; }
+        if (y > doc.page.height - 90) { doc.addPage(); y = 40; }
         doc.rect(40, y, 515, 15).lineWidth(0.4).strokeColor('#DDDDDD').stroke();
         const line = [
           new Date(r.date).toLocaleDateString('fr-FR'), r.reference, r.narrative || r.label || '',
@@ -411,9 +429,7 @@ function bankStatement({ periodLabel, rows, closingBalance }, settings = {}, doc
       doc.fillColor(NAVY).fontSize(9.5).font('Helvetica-Bold').text(`Solde de clôture : ${closingBalance}`, 50, y + 7);
       doc.font('Helvetica');
 
-      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
-        .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: 515, align: 'center' });
-      doc.font('Helvetica');
+      drawFooter(doc, settings, { leftLabel: 'Vérifié par (Comptabilité)', rightLabel: 'Cachet' });
     },
   );
 }
@@ -444,14 +460,7 @@ function shareCapitalCertificate(share, member, settings = {}, docNumber = null)
         ['Référence', share.reference], ['Mode de paiement', share.paymentMethod === 'cash' ? 'Espèces' : 'Mobile Money'],
       ]);
 
-      y += 40;
-      doc.fontSize(9).fillColor('#111111').text('Signature autorisée : ______________________', 40, y);
-      y += 22;
-      doc.text('Cachet de la coopérative :', 40, y);
-
-      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
-        .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: doc.page.width - 80, align: 'center' });
-      doc.font('Helvetica');
+      drawFooter(doc, settings);
     },
   );
 }
@@ -494,7 +503,7 @@ function creditContract(credit, member, schedule, settings = {}, docNumber = nul
 
       doc.fontSize(8).fillColor('#111111');
       schedule.forEach((r) => {
-        if (y > doc.page.height - 60) { doc.addPage(); y = 40; }
+        if (y > doc.page.height - 90) { doc.addPage(); y = 40; }
         doc.rect(40, y, 515, 15).lineWidth(0.4).strokeColor('#DDDDDD').stroke();
         const line = [
           String(r.installmentNumber), new Date(r.expectedDate).toLocaleDateString('fr-FR'),
@@ -504,14 +513,7 @@ function creditContract(credit, member, schedule, settings = {}, docNumber = nul
         y += 15;
       });
 
-      y += 26;
-      if (y > doc.page.height - 80) { doc.addPage(); y = 40; }
-      doc.fontSize(9).fillColor('#111111').text('Signature du membre : ______________________', 40, y);
-      doc.text('Signature — Responsable Crédit : ______________________', 300, y);
-
-      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
-        .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: 515, align: 'center' });
-      doc.font('Helvetica');
+      drawFooter(doc, settings, { leftLabel: 'Signature du membre', rightLabel: 'Signature — Responsable Crédit' });
     },
   );
 }
@@ -536,7 +538,7 @@ function accountingStatementPdf(type, data, settings = {}, docNumber = null) {
         y += 18;
         doc.fontSize(8.5).fillColor('#111111');
         rows.forEach((r) => {
-          if (y > doc.page.height - 50) { doc.addPage(); y = 40; }
+          if (y > doc.page.height - 90) { doc.addPage(); y = 40; }
           doc.rect(40, y, 515, 15).lineWidth(0.4).strokeColor('#DDDDDD').stroke();
           cols.forEach((c, i) => doc.text(String(r[c.key] ?? ''), colX[i] + 6, y + 4, { width: c.w - 6, align: c.align || 'left' }));
           y += 15;
@@ -563,9 +565,7 @@ function accountingStatementPdf(type, data, settings = {}, docNumber = null) {
         table(data.data || data.accounts || [], [{ key: 'code', label: 'Compte', x: 40, w: 60 }, { key: 'label', label: 'Libellé', x: 100, w: 260 }, { key: 'debit', label: 'Débit', x: 360, w: 90, align: 'right' }, { key: 'credit', label: 'Crédit', x: 460, w: 95, align: 'right' }]);
       }
 
-      doc.fillColor('#999999').fontSize(7.5).font('Helvetica-Oblique')
-        .text(`Document généré le ${new Date().toLocaleString('fr-FR')} — ${settings.coopName || 'COOPEC-DC'}.`, 40, doc.page.height - 40, { width: 515, align: 'center' });
-      doc.font('Helvetica');
+      drawFooter(doc, settings, { leftLabel: 'Signature — Chef Comptable', rightLabel: 'Cachet' });
     },
   );
 }
