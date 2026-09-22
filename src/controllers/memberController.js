@@ -111,4 +111,21 @@ const resetPassword = asyncHandler(async (req, res) => {
   res.json({ success: true, tempPassword, member: { id: member._id, memberNumber: member.memberNumber } });
 });
 
-module.exports = { register, list, stats, detail, update, deactivate, resetPassword };
+/** GET /members/:id/fiche — fiche membre imprimable (PDF). */
+const printFiche = asyncHandler(async (req, res) => {
+  const member = await Member.findOne({ _id: req.params.id, deletedAt: null });
+  if (!member) throw new ApiError(404, 'Membre introuvable.');
+  const accounts = await Account.find({ member: member._id });
+
+  const pdfGenerator = require('../services/pdfGenerator');
+  const { getOrCreate: getSettings } = require('./settingsController');
+  const { nextDocNumber } = require('../utils/helpers');
+  const settings = await getSettings();
+  const docNumber = await nextDocNumber('MBR');
+  const buffer = await pdfGenerator.memberFiche(member, accounts, settings, docNumber);
+
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="fiche-${member.memberNumber}.pdf"`, 'Content-Length': buffer.length });
+  res.send(buffer);
+});
+
+module.exports = { register, list, stats, detail, update, deactivate, resetPassword, printFiche };

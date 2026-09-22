@@ -18,6 +18,7 @@ router.post('/register',
 router.get('/', protectUser, c.list);
 router.get('/stats', protectUser, c.stats);
 router.get('/:id', protectUser, c.detail);
+router.get('/:id/fiche', protectUser, c.printFiche);
 router.put('/:id', protectUser, allowRoles(ROLES.DIRECTOR, ROLES.CREDIT_MANAGER), audit('member', 'update'), c.update);
 router.post('/:id/deactivate', protectUser, allowRoles(ROLES.DIRECTOR), audit('member', 'deactivate'), c.deactivate);
 router.post('/:id/reset-password', protectUser, allowRoles(ROLES.DIRECTOR, ROLES.CASHIER), audit('member', 'password_reset_staff'), c.resetPassword);

@@ -590,8 +590,66 @@ function accountingStatementPdf(type, data, settings = {}, docNumber = null) {
   );
 }
 
+const MEMBER_STATUS_LABELS = { active: 'Actif', pending: 'En attente', suspended: 'Suspendu', closed: 'Clôturé' };
+
+/** Fiche membre imprimable — identité complète et comptes du sociétaire. */
+function memberFiche(member, accounts = [], settings = {}, docNumber = null) {
+  return renderPdf(
+    () => new PDFDocument({ size: 'A4', margin: 40 }),
+    async (doc) => {
+      let y = await drawClassicHeader(doc, settings, { docType: 'Fiche membre', docNumber, date: new Date().toLocaleDateString('fr-FR') });
+
+      const fullName = `${member.firstName} ${member.lastName}`;
+      const initials = [member.firstName, member.lastName].filter(Boolean).map((p) => p[0]?.toUpperCase()).join('');
+      await drawPhotoBox(doc, 40, y, 56, { initials });
+      doc.fillColor('#111111').fontSize(13).font('Helvetica-Bold').text(fullName, 108, y + 6, { width: 380 });
+      doc.font('Helvetica').fillColor('#666666').fontSize(9.5).text(`N° membre ${member.memberNumber}`, 108, y + 24);
+      y += 74;
+
+      y = drawSectionTitle(doc, 40, y, 'Identité');
+      y = drawKeyValueTable(doc, 40, y, doc.page.width - 80, [
+        ['Nom complet', fullName], ['N° membre', member.memberNumber],
+        ['Téléphone', member.phone || '-'], ['E-mail', member.email || '-'],
+        ["Pièce d'identité", member.nationalId || '-'], ['Profession', member.profession || '-'],
+        ['Revenu mensuel', member.monthlyIncome ? `${member.monthlyIncome} CDF` : '-'],
+        ['Adresse', (typeof member.address === 'string' ? member.address : [member.address?.commune, member.address?.ville].filter(Boolean).join(', ')) || '-'],
+        ['Statut', MEMBER_STATUS_LABELS[member.status] || member.status],
+        ['Inscrit le', new Date(member.createdAt).toLocaleDateString('fr-FR')],
+      ]);
+
+      y += 16;
+      y = drawSectionTitle(doc, 40, y, 'Comptes');
+      if (accounts.length === 0) {
+        doc.rect(40, y, doc.page.width - 80, 24).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+        doc.fillColor('#999999').fontSize(8.5).font('Helvetica-Oblique').text('Aucun compte.', 40, y + 8, { width: doc.page.width - 80, align: 'center' });
+        doc.font('Helvetica');
+      } else {
+        const colX = [40, 220, 330, doc.page.width - 155];
+        doc.rect(40, y, doc.page.width - 80, 18).fillColor('#F3F4F8').fill();
+        doc.rect(40, y, doc.page.width - 80, 18).lineWidth(0.6).strokeColor('#CCCCCC').stroke();
+        doc.fillColor('#666666').fontSize(7.5).font('Helvetica-Bold');
+        doc.text('N° DE COMPTE', colX[0] + 8, y + 5); doc.text('TYPE', colX[1] + 8, y + 5); doc.text('DEVISE', colX[2] + 8, y + 5); doc.text('SOLDE', colX[3] + 8, y + 5, { width: 105, align: 'right' });
+        doc.font('Helvetica');
+        y += 18;
+        accounts.forEach((a) => {
+          doc.rect(40, y, doc.page.width - 80, 18).lineWidth(0.6).strokeColor('#DDDDDD').stroke();
+          doc.fillColor('#111111').fontSize(8.5);
+          doc.text(a.accountNumber, colX[0] + 8, y + 5, { width: 165 });
+          doc.text(a.type === 'savings' ? 'Épargne' : a.type === 'fixed_deposit' ? 'Dépôt à terme' : a.type, colX[1] + 8, y + 5, { width: 95 });
+          doc.text(a.currency || 'CDF', colX[2] + 8, y + 5, { width: 80 });
+          doc.font('Helvetica-Bold').text(`${a.balance} ${a.currency || 'CDF'}`, colX[3] + 8, y + 5, { width: 105, align: 'right' });
+          doc.font('Helvetica');
+          y += 18;
+        });
+      }
+
+      drawFooter(doc, settings, { leftLabel: 'Signature du membre', rightLabel: 'Cachet de la coopérative' });
+    },
+  );
+}
+
 module.exports = {
   transactionReceipt, cashDepositDualReceipt, depositVoucher, employeeFiche, dailyCashReport, auditLogsPdf,
-  bankStatement, shareCapitalCertificate, creditContract, accountingStatementPdf,
+  bankStatement, shareCapitalCertificate, creditContract, accountingStatementPdf, memberFiche,
   drawClassicHeader, fetchImageBuffer, NAVY, ACCENT, MINT,
 };
