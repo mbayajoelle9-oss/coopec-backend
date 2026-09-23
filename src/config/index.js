@@ -58,6 +58,7 @@ const config = {
     rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX, 10) || 200,
     maxLoginAttempts: parseInt(process.env.MAX_LOGIN_ATTEMPTS, 10) || 5,
     accountLockMinutes: parseInt(process.env.ACCOUNT_LOCK_MINUTES, 10) || 30,
+    cronSecret: process.env.CRON_SECRET || null,
   },
 
   business: {

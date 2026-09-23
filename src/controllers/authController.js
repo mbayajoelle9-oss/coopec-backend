@@ -12,6 +12,11 @@ const User = require('../models/User');
  */
 const memberLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
+  const { getOrCreate: getSettings } = require('./settingsController');
+  const settings = await getSettings();
+  const maxAttempts = settings.maxLoginAttempts ?? config.security.maxLoginAttempts;
+  const lockMinutes = settings.accountLockMinutes ?? config.security.accountLockMinutes;
+
   const member = await Member.findOne({ email: String(email || '').toLowerCase(), deletedAt: null }).select('+password');
   if (!member) throw new ApiError(401, 'Identifiants invalides.');
   if (member.isLocked()) throw new ApiError(423, 'Compte temporairement verrouillé. Réessayez plus tard.');
@@ -20,8 +25,8 @@ const memberLogin = asyncHandler(async (req, res) => {
   const ok = member.password && await member.comparePassword(password);
   if (!ok) {
     member.loginAttempts += 1;
-    if (member.loginAttempts >= config.security.maxLoginAttempts) {
-      member.lockedUntil = new Date(Date.now() + config.security.accountLockMinutes * 60000);
+    if (member.loginAttempts >= maxAttempts) {
+      member.lockedUntil = new Date(Date.now() + lockMinutes * 60000);
       member.loginAttempts = 0;
     }
     await member.save();
@@ -39,6 +44,11 @@ const memberLogin = asyncHandler(async (req, res) => {
 /** POST /auth/admin/login — connexion personnel (email + mot de passe). */
 const adminLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
+  const { getOrCreate: getSettings } = require('./settingsController');
+  const settings = await getSettings();
+  const maxAttempts = settings.maxLoginAttempts ?? config.security.maxLoginAttempts;
+  const lockMinutes = settings.accountLockMinutes ?? config.security.accountLockMinutes;
+
   const user = await User.findOne({ email: String(email).toLowerCase(), deletedAt: null }).select('+password');
   if (!user) throw new ApiError(401, 'Identifiants invalides.');
   if (user.lockedUntil && user.lockedUntil > Date.now()) throw new ApiError(423, 'Compte temporairement verrouillé suite à plusieurs échecs. Réessayez plus tard.');
@@ -47,8 +57,8 @@ const adminLogin = asyncHandler(async (req, res) => {
   const ok = await user.comparePassword(password);
   if (!ok) {
     user.loginAttempts = (user.loginAttempts || 0) + 1;
-    if (user.loginAttempts >= config.security.maxLoginAttempts) {
-      user.lockedUntil = new Date(Date.now() + config.security.accountLockMinutes * 60000);
+    if (user.loginAttempts >= maxAttempts) {
+      user.lockedUntil = new Date(Date.now() + lockMinutes * 60000);
       user.loginAttempts = 0;
       // Alerte de sécurité (Instruction BCC n°002) : tentatives répétées = accès potentiellement non autorisé.
       const notificationService = require('../services/notificationService');

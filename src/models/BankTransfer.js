@@ -11,6 +11,7 @@ const bankTransferSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   currency: { type: String, enum: ['CDF', 'USD'], default: 'CDF' },
   reference: { type: String, required: true }, // référence du virement bancaire réel
+  bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' }, // compte déclaré destinataire — permet le rapprochement PAR compte
   bankName: String,
   note: String,
   transactionCount: { type: Number, default: 0 },

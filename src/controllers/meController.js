@@ -112,7 +112,7 @@ const repay = asyncHandler(async (req, res) => {
     paymentMethod: 'mobile_money', mobileMoneyNumber: phone || req.member.phone, status: 'pending', ipAddress: req.ip,
   });
 
-  const provider = paymentProvider();
+  const provider = await paymentProvider();
   const result = await provider.collect({
     amount: money(amount), currency: 'CDF', phone: phone || req.member.phone,
     reference, description: `Remboursement ${credit.creditNumber}`,

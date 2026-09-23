@@ -1,5 +1,4 @@
 'use strict';
-const fs = require('fs');
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../middleware/errorHandler');
 const { parseCsv, parseAmount, parseDate } = require('../utils/csvParser');
@@ -16,7 +15,7 @@ const MATCH_WINDOW_DAYS = 5; // tolérance entre la date du relevé et celle de 
  */
 const importStatement = asyncHandler(async (req, res) => {
   if (!req.file) throw new ApiError(400, 'Aucun fichier reçu.');
-  const text = fs.readFileSync(req.file.path, 'utf8');
+  const text = req.file.buffer.toString('utf8');
   const { headers, rows } = parseCsv(text);
   if (rows.length === 0) throw new ApiError(400, 'Fichier vide ou illisible.');
 
@@ -54,8 +53,6 @@ const importStatement = asyncHandler(async (req, res) => {
       } : null,
     };
   });
-
-  fs.unlink(req.file.path, () => {}); // fichier temporaire, plus besoin une fois analysé
 
   const matchedCount = results.filter((r) => r.matchedTransaction).length;
   res.json({ success: true, total: results.length, matchedCount, unmatchedCount: results.length - matchedCount, results });

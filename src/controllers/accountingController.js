@@ -49,11 +49,17 @@ const pendingTransfer = asyncHandler(async (req, res) => {
  * `transactionIds` liste les dépôts sélectionnés par la comptabilité.
  */
 const recordTransfer = asyncHandler(async (req, res) => {
-  const { amount, currency, reference, bankName, note, transactionIds } = req.body;
+  const { amount, currency, reference, bankAccountId, bankName, note, transactionIds } = req.body;
   if (!(amount > 0)) throw new ApiError(400, 'Montant invalide.');
   if (!reference) throw new ApiError(400, 'Référence du virement requise.');
   if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
     throw new ApiError(400, 'Sélectionnez au moins une transaction couverte par ce virement.');
+  }
+
+  let bankAccount = null;
+  if (bankAccountId) {
+    bankAccount = await BankAccount.findById(bankAccountId);
+    if (!bankAccount) throw new ApiError(404, 'Compte bancaire déclaré introuvable.');
   }
 
   const txns = await Transaction.find({
@@ -65,7 +71,8 @@ const recordTransfer = asyncHandler(async (req, res) => {
   }
 
   const transfer = await BankTransfer.create({
-    amount: money(amount), currency: currency || 'CDF', reference, bankName, note,
+    amount: money(amount), currency: currency || 'CDF', reference,
+    bankAccount: bankAccount?._id, bankName: bankName || bankAccount?.label, note,
     transactionCount: txns.length, transactionIds, status: 'pending', createdBy: req.actor?.id,
   });
 
@@ -107,8 +114,10 @@ const confirmTransfer = asyncHandler(async (req, res) => {
 
 /** GET /accounting/transfers — historique des virements enregistrés. */
 const listTransfers = asyncHandler(async (req, res) => {
-  const transfers = await BankTransfer.find().sort({ createdAt: -1 })
-    .populate('createdBy', 'name').populate('confirmedBy', 'name');
+  const filter = {};
+  if (req.query.bankAccountId) filter.bankAccount = req.query.bankAccountId;
+  const transfers = await BankTransfer.find(filter).sort({ createdAt: -1 })
+    .populate('createdBy', 'name').populate('confirmedBy', 'name').populate('bankAccount', 'label bankName accountNumber');
   res.json({ success: true, data: transfers });
 });
 
@@ -347,10 +356,51 @@ const printAccountingStatement = asyncHandler(async (req, res) => {
   res.send(buffer);
 });
 
+/**
+ * GET /accounting/bank-accounts/:id/statement — relevé PAR compte bancaire déclaré :
+ * liste les remises CONFIRMÉES vers ce compte précis, avec solde cumulé. Ventile enfin
+ * le rapprochement bancaire compte par compte, plutôt qu'un seul suivi global agrégé.
+ */
+async function computeAccountStatement(accountId) {
+  const account = await BankAccount.findById(accountId);
+  if (!account) throw new ApiError(404, 'Compte bancaire déclaré introuvable.');
+
+  const transfers = await BankTransfer.find({ bankAccount: accountId, status: 'confirmed' }).sort({ confirmedAt: 1, createdAt: 1 });
+  let balance = 0;
+  const rows = transfers.map((t) => {
+    balance = money(balance + t.amount);
+    return { date: t.confirmedAt || t.createdAt, reference: t.reference, narrative: t.note || 'Remise en banque', credit: t.amount, debit: 0, balance };
+  });
+  return { account, rows, balance };
+}
+
+const bankAccountStatement = asyncHandler(async (req, res) => {
+  const { account, rows, balance } = await computeAccountStatement(req.params.id);
+  res.json({ success: true, account, rows, balance });
+});
+
+/** GET /accounting/bank-accounts/:id/statement/print — même relevé, en PDF. */
+const printBankAccountStatement = asyncHandler(async (req, res) => {
+  const { account, rows, balance } = await computeAccountStatement(req.params.id);
+
+  const pdfGenerator = require('../services/pdfGenerator');
+  const { getOrCreate: getSettings } = require('./settingsController');
+  const { nextDocNumber } = require('../utils/helpers');
+  const settings = await getSettings();
+  const docNumber = await nextDocNumber('REL');
+  const buffer = await pdfGenerator.bankStatement(
+    { periodLabel: `Compte : ${account.label}${account.accountNumber ? ` (${account.accountNumber})` : ''}`, rows, closingBalance: balance },
+    settings, docNumber,
+  );
+
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="releve-${account.label}.pdf"`, 'Content-Length': buffer.length });
+  res.send(buffer);
+});
+
 module.exports = {
   pendingTransfer, recordTransfer, confirmTransfer, listTransfers, agentCashPending,
   computeBalanceSheet, computeIncomeStatement,
   chartOfAccounts, journal, ledger, trialBalance, balanceSheet, incomeStatement,
   listBankAccounts, addBankAccount, updateBankAccount,
-  printBankStatement, printAccountingStatement,
+  printBankStatement, printAccountingStatement, bankAccountStatement, printBankAccountStatement,
 };

@@ -5,21 +5,18 @@ const { ApiError } = require('../middleware/errorHandler');
 const User = require('../models/User');
 const EmployeeDocument = require('../models/EmployeeDocument');
 const pdfGenerator = require('../services/pdfGenerator');
+const cloudinaryService = require('../services/cloudinary');
 const { getOrCreate: getSettings } = require('./settingsController');
-
-/** Construit l'URL publique d'un fichier téléversé. */
-function fileUrl(req, filename) {
-  return `${req.protocol}://${req.get('host')}/uploads/${filename}`;
-}
 
 /**
  * POST /uploads — dépôt générique d'un fichier (photo, pièce d'identité...).
- * Retourne l'URL à réutiliser dans un autre formulaire (profil, document RH...).
- * Le fichier lui-même est déposé par le middleware multer avant ce handler.
+ * Retourne l'URL Cloudinary à réutiliser dans un autre formulaire (profil, document RH...).
+ * Stockage permanent — ne disparaît plus au prochain redéploiement du serveur.
  */
 const uploadFile = asyncHandler(async (req, res) => {
   if (!req.file) throw new ApiError(400, 'Aucun fichier reçu.');
-  res.status(201).json({ success: true, url: fileUrl(req, req.file.filename), originalName: req.file.originalname });
+  const result = await cloudinaryService.uploadBuffer(req.file.buffer, { folder: 'coopec-dc/general', originalName: req.file.originalname });
+  res.status(201).json({ success: true, url: result.secure_url, originalName: req.file.originalname });
 });
 
 /** GET /employees/:userId/documents — liste des documents du dossier RH. */
@@ -31,8 +28,8 @@ const listDocuments = asyncHandler(async (req, res) => {
 
 /**
  * POST /employees/:userId/documents — dépose un document dans le dossier RH.
- * Le fichier est déjà sur le disque (middleware multer) ; on enregistre son
- * entrée avec le type choisi (doit faire partie des types configurés).
+ * Le fichier est téléversé vers Cloudinary (stockage permanent) avant d'enregistrer
+ * son entrée avec le type choisi (doit faire partie des types configurés).
  */
 const addDocument = asyncHandler(async (req, res) => {
   if (!req.file) throw new ApiError(400, 'Aucun fichier reçu.');
@@ -42,9 +39,11 @@ const addDocument = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.userId);
   if (!user) throw new ApiError(404, 'Employé introuvable.');
 
+  const result = await cloudinaryService.uploadBuffer(req.file.buffer, { folder: `coopec-dc/rh/${user._id}`, originalName: req.file.originalname });
+
   const doc = await EmployeeDocument.create({
     user: user._id, docType,
-    fileName: req.file.originalname, fileUrl: fileUrl(req, req.file.filename),
+    fileName: req.file.originalname, fileUrl: result.secure_url,
     uploadedBy: req.actor?.id,
   });
   res.status(201).json({ success: true, document: doc });

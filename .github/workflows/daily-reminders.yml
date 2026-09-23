@@ -1,0 +1,26 @@
+name: Rappels quotidiens de crédit
+
+# Se déclenche tous les jours à 8h00, heure de Kinshasa (UTC+1 -> 7h00 UTC).
+# Réveille aussi le serveur Render s'il était en veille faute de trafic.
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch: {} # permet aussi un déclenchement manuel depuis l'onglet Actions de GitHub
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Appeler /cron/send-reminders
+        run: |
+          response=$(curl -s -o /tmp/body.txt -w "%{http_code}" -X POST "${BACKEND_URL}/cron/send-reminders" \
+            -H "X-Cron-Secret: ${CRON_SECRET}")
+          echo "Réponse HTTP : $response"
+          cat /tmp/body.txt
+          if [ "$response" -ne 200 ]; then
+            echo "Échec du déclenchement des rappels (code $response)."
+            exit 1
+          fi
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

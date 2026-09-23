@@ -57,7 +57,7 @@ const depositRequest = asyncHandler(async (req, res) => {
     });
   }
 
-  const provider = paymentProvider();
+  const provider = await paymentProvider();
   try {
     const result = await provider.collect({
       amount: money(amount), currency: account.currency, phone, reference,
@@ -235,7 +235,7 @@ const withdrawalValidate = asyncHandler(async (req, res) => {
 
   // Décaissement mobile money si demandé
   if (trx.paymentMethod === 'mobile_money') {
-    const provider = paymentProvider();
+    const provider = await paymentProvider();
     const result = await provider.disburse({
       amount: trx.amount, currency: trx.currency, phone: trx.mobileMoneyNumber,
       reference: trx.reference, description: `Retrait COOPECI-DC ${trx.reference}`,

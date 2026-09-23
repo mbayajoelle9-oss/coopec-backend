@@ -221,7 +221,7 @@ const disburse = asyncHandler(async (req, res) => {
 
   // Décaissement
   if (method === 'mobile_money') {
-    const provider = paymentProvider();
+    const provider = await paymentProvider();
     const result = await provider.disburse({
       amount: principal, currency: 'CDF', phone, reference: credit.creditNumber,
       description: `Décaissement crédit ${credit.creditNumber}`,
@@ -294,7 +294,7 @@ const initiateRepayment = asyncHandler(async (req, res) => {
     initiatedBy: req.actor?.kind === 'user' ? req.actor.id : undefined, ipAddress: req.ip,
   });
 
-  const provider = paymentProvider();
+  const provider = await paymentProvider();
   const result = await provider.collect({ amount: money(amount), currency: 'CDF', phone, reference, description: `Remboursement ${credit.creditNumber}` });
   trx.providerTransactionId = result.providerTransactionId; trx.provider = provider.name;
   if (result.status === PAYMENT_RESULT.SUCCESS) { trx.status = 'completed'; await applyRepayment(nextDue, money(amount), result.providerTransactionId); }

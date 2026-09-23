@@ -18,7 +18,7 @@ const logger = require('../utils/logger');
  * brut nécessaire à la vérification de signature quand le provider en fournit une.
  */
 const paymentWebhook = asyncHandler(async (req, res) => {
-  const provider = paymentProvider();
+  const provider = await paymentProvider();
   const rawBody = req.body instanceof Buffer ? req.body.toString('utf8') : JSON.stringify(req.body);
 
   if (!provider.verifyWebhook(req.headers, rawBody)) {

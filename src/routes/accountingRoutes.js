@@ -36,6 +36,8 @@ router.get('/bank-accounts', CAN_VIEW, c.listBankAccounts);
 router.post('/bank-accounts', CAN_RECONCILE, body('label').notEmpty(), validate, audit('accounting', 'bank_account_add'), c.addBankAccount);
 router.put('/bank-accounts/:id', CAN_RECONCILE, audit('accounting', 'bank_account_update'), c.updateBankAccount);
 router.get('/bank-statement/print', CAN_VIEW, c.printBankStatement);
+router.get('/bank-accounts/:id/statement', CAN_VIEW, c.bankAccountStatement);
+router.get('/bank-accounts/:id/statement/print', CAN_VIEW, c.printBankAccountStatement);
 router.get('/statements/:type/print', CAN_VIEW, c.printAccountingStatement);
 
 const { upload } = require('../middleware/upload');
