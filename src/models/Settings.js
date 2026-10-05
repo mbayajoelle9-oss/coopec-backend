@@ -29,6 +29,7 @@ const settingsSchema = new mongoose.Schema({
   defaultLateFeeRate: { type: Number, default: 2 }, // % de pénalité de retard
   shareUnitValue: { type: Number, default: 5000 }, // valeur nominale d'une part sociale (CDF)
   creditRemoteMaxAmount: { type: Number, default: 500 }, // USD — seuil de soumission à distance
+  exchangeRateUsdToCdf: { type: Number, default: 2800 }, // 1 USD = X CDF — utilisé pour convertir les montants CDF avant comparaison au seuil ci-dessus
 
   // Classification des crédits en retard et barème de provisionnement — MODIFIABLE ici,
   // volontairement non figé dans le code tant que les chiffres officiels ne sont pas

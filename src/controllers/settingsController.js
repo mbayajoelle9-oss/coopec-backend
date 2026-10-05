@@ -21,7 +21,7 @@ const updateSettings = asyncHandler(async (req, res) => {
   const allowed = [
     'coopName', 'coopFullName', 'approvalNumber', 'address', 'phone', 'email', 'logoUrl',
     'employeeDocumentTypes',
-    'defaultInterestRate', 'defaultLateFeeRate', 'shareUnitValue', 'creditRemoteMaxAmount',
+    'defaultInterestRate', 'defaultLateFeeRate', 'shareUnitValue', 'creditRemoteMaxAmount', 'exchangeRateUsdToCdf',
     'creditClassification', 'minLiquidityRatio', 'maxConcentrationRatio', 'cashMinAmount', 'cashMaxAmount',
     'auditRetentionYears',
     'maxLoginAttempts', 'accountLockMinutes', 'activePaymentProvider', 'defaultCurrency',
