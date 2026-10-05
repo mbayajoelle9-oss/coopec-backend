@@ -1,7 +1,7 @@
 'use strict';
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../middleware/errorHandler');
-const { genReference, paginate, money, amortizationSchedule } = require('../utils/helpers');
+const { genReference, paginate, money, amortizationSchedule, nextDocNumber } = require('../utils/helpers');
 const config = require('../config');
 const CreditApplication = require('../models/CreditApplication');
 const Credit = require('../models/Credit');
@@ -40,8 +40,7 @@ const createApplication = asyncHandler(async (req, res) => {
   const channel = isMember ? 'member_app' : isAgent ? 'agent_pos' : 'in_person';
 
   const settings = await getSettings();
-  // Le montant demandé est saisi en CDF ; le seuil de soumission à distance est en USD.
-  // On convertit avant de comparer, sinon toute demande en CDF dépasse le seuil à tort.
+  // Le montant est saisi en CDF ; le seuil est en USD : on convertit avant de comparer.
   const rate = settings.exchangeRateUsdToCdf > 0 ? settings.exchangeRateUsdToCdf : 2800;
   const amountInUsd = money(amountRequested) / rate;
   if ((channel === 'member_app' || channel === 'agent_pos') && amountInUsd > settings.creditRemoteMaxAmount) {
@@ -225,7 +224,7 @@ const disburse = asyncHandler(async (req, res) => {
 
   // Décaissement
   if (method === 'mobile_money') {
-    const provider = paymentProvider();
+    const provider = await paymentProvider();
     const result = await provider.disburse({
       amount: principal, currency: 'CDF', phone, reference: credit.creditNumber,
       description: `Décaissement crédit ${credit.creditNumber}`,
@@ -298,7 +297,7 @@ const initiateRepayment = asyncHandler(async (req, res) => {
     initiatedBy: req.actor?.kind === 'user' ? req.actor.id : undefined, ipAddress: req.ip,
   });
 
-  const provider = paymentProvider();
+  const provider = await paymentProvider();
   const result = await provider.collect({ amount: money(amount), currency: 'CDF', phone, reference, description: `Remboursement ${credit.creditNumber}` });
   trx.providerTransactionId = result.providerTransactionId; trx.provider = provider.name;
   if (result.status === PAYMENT_RESULT.SUCCESS) { trx.status = 'completed'; await applyRepayment(nextDue, money(amount), result.providerTransactionId); }
@@ -348,7 +347,31 @@ async function applyRepayment(repayment, amount, providerTransactionId) {
   return repayment;
 }
 
+/** GET /credits/:id/contract/print — contrat de crédit + échéancier, imprimable. */
+const printContract = asyncHandler(async (req, res) => {
+  const credit = await Credit.findById(req.params.id);
+  if (!credit) throw new ApiError(404, 'Crédit introuvable.');
+  const member = await Member.findById(credit.member).select('firstName lastName memberNumber');
+  const schedule = await Repayment.find({ credit: credit._id }).sort({ installmentNumber: 1 });
+
+  const pdfGenerator = require('../services/pdfGenerator');
+  const { getOrCreate: getSettings } = require('./settingsController');
+  const settings = await getSettings();
+  const docNumber = await nextDocNumber('CTR');
+  const buffer = await pdfGenerator.creditContract(credit, member, schedule, settings, docNumber);
+
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="contrat-${credit._id}.pdf"`, 'Content-Length': buffer.length });
+  res.send(buffer);
+});
+
+/** GET /credits/by-application/:appId — retrouve le crédit décaissé résultant d'une demande. */
+const byApplication = asyncHandler(async (req, res) => {
+  const credit = await Credit.findOne({ application: req.params.appId });
+  if (!credit) throw new ApiError(404, "Aucun crédit décaissé pour cette demande.");
+  res.json({ success: true, credit });
+});
+
 module.exports = {
   createApplication, listApplications, applicationDetail, updateStatus,
-  disburse, creditDetail, memberCredits, initiateRepayment, applyRepayment, computeScore,
+  disburse, creditDetail, memberCredits, initiateRepayment, applyRepayment, computeScore, printContract, byApplication,
 };
